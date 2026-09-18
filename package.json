@@ -1,0 +1,28 @@
+{
+  "name": "rescicle",
+  "productName": "rescicle",
+  "version": "0.0.2",
+  "description": "Local-first research copilot powered by the user's existing ChatGPT/Codex or Claude Code environment.",
+  "author": "rescicle project",
+  "license": "UNLICENSED",
+  "private": true,
+  "main": "src/main.cjs",
+  "scripts": {
+    "start": "electron-forge start",
+    "package": "electron-forge package",
+    "make": "electron-forge make",
+    "test": "node scripts/smoke-test.cjs && node scripts/codex-protocol-test.cjs && node scripts/mcp-protocol-test.cjs"
+  },
+  "dependencies": {
+    "@openai/codex": "0.154.0"
+  },
+  "devDependencies": {
+    "@electron-forge/cli": "^6.4.2",
+    "@electron-forge/maker-squirrel": "^6.4.2",
+    "electron": "44.4.1"
+  },
+  "overrides": {
+    "tar": "^7.5.22",
+    "tmp": "^0.2.7"
+  }
+}
