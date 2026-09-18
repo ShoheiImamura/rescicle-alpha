@@ -100,3 +100,11 @@ button { cursor: pointer; }
 .settings-section:first-of-type { border-top: 0; }
 .settings-section h3 { margin: 0 0 8px; font-size: 14px; }
 .connection-ok { padding: 12px; border: 1px solid #d6e5d6; border-radius: 10px; background: #f7fbf6; margin: 10px 0; }
+.settings-section.secondary { opacity: .72; }
+.settings-section.secondary summary { cursor: pointer; font-size: 12px; font-weight: 700; color: #6b6a64; list-style: none; }
+.settings-section.secondary summary::-webkit-details-marker { display: none; }
+.settings-section.secondary summary::before { content: "▸ "; color: #a3a29a; }
+.settings-section.secondary[open] summary::before { content: "▾ "; }
+.settings-section.secondary:hover { opacity: 1; }
+.pill.active-backend { border-color: #b9c9b6; background: #f4f9f3; color: #3f6039; }
+.chat-head .backend-pill { margin-left: 8px; font-weight: 600; }

@@ -122,33 +122,58 @@ function filesHtml() {
 function chatHtml() {
   const selected = state.selectedObject ? state.selectedObject.title : null;
   const messages = state.workspace.messages || [];
-  return `<div class="chat-head">Conversation<div class="chat-context">${selected ? `Context: ${esc(selected)}` : 'Project context'}</div></div>
+  const backendLabel = state.bootstrap?.agent?.backend === 'codex' ? 'ChatGPT / Codex' : 'Claude Code';
+  return `<div class="chat-head">Conversation<span class="pill backend-pill" id="backendPill" title="AI接続で切り替えます">${esc(backendLabel)}</span><div class="chat-context">${selected ? `Context: ${esc(selected)}` : 'Project context'}</div></div>
     <div class="messages" id="messages">${messages.length ? messages.map(m => `<div class="message ${m.role}">${esc(m.content)}</div>`).join('') : '<div class="muted" style="font-size:12px">「何を調べている研究か」から普通に話してください。</div>'}</div>
-    <div class="chat-compose"><textarea id="chatInput" class="input" placeholder="研究について話す…"></textarea>${state.error ? `<div class="error">${esc(state.error)}</div>`:''}<div class="compose-actions"><div class="privacy">Raw file本文はCodexへ自動送信しません</div><button class="btn primary" id="sendBtn">送信</button></div></div>`;
+    <div class="chat-compose"><textarea id="chatInput" class="input" placeholder="研究について話す…"></textarea>${state.error ? `<div class="error">${esc(state.error)}</div>`:''}<div class="compose-actions"><div class="privacy">Raw file本文はAIへ自動送信しません</div><button class="btn primary" id="sendBtn">送信</button></div></div>`;
+}
+
+function backendPickerHtml(backend, active) {
+  return active
+    ? '<span class="pill active-backend">このチャットで使用中</span>'
+    : `<button class="btn small" data-backend="${backend}">このチャットで使う</button>`;
+}
+
+function claudeSectionHtml(agent) {
+  const claude = agent.claude || {};
+  const active = (agent.backend || 'claude') === 'claude';
+  const body = claude.available
+    ? `<div class="connection-ok"><strong>利用可能</strong><div class="muted">${esc(claude.version || 'claude')}</div></div>`
+    : `<div class="error">Claude Codeが見つかりません: ${esc(claude.error || 'unknown error')}</div>
+       <div class="muted" style="font-size:11px;margin-top:8px">claudeコマンドをインストールして、rescicleを再起動してください。</div>`;
+  return `<div class="settings-section"><h3>Claude Code <span class="pill">メイン</span></h3>${body}
+    <div class="actions" style="margin-top:10px">${backendPickerHtml('claude', active)}<button class="btn small" id="refreshAgent">状態を更新</button></div>
+    <div class="muted" style="font-size:11px;margin-top:12px">画面のチャットは、すでにログイン済みのClaude Codeをローカルで実行して応答します。APIキーは不要です。研究フォルダをAIの作業ディレクトリにはせず、Conversation・Research Objectの要約・ファイル名/サイズ/更新日時だけを渡します。Raw file contentは送信しません。</div>
+    <div class="muted" style="font-size:11px;margin-top:10px">Claude Code側をUIにして操作したい場合は、rescicleをMCP serverとして追加できます。</div>
+    <button class="btn small" id="copyClaudeSetup" style="margin-top:10px">MCP設定コマンドをコピー</button>
+  </div>`;
+}
+
+function codexSectionHtml(agent) {
+  const codex = agent.codex || agent;
+  const account = codex.account || null;
+  const active = agent.backend === 'codex';
+  const accountLabel = account?.type === 'chatgpt'
+    ? `ChatGPT ${account.planType || ''}${account.email ? ` · ${account.email}` : ''}`
+    : account ? account.type : null;
+  const body = !codex.available
+    ? `<div class="error">Codexを起動できません: ${esc(codex.error || 'unknown error')}</div>`
+    : account
+      ? `<div class="muted" style="font-size:12px">接続済み · ${esc(accountLabel)}</div>
+         <div class="actions" style="margin-top:10px">${backendPickerHtml('codex', active)}<button class="btn small" id="logoutAgent">ログアウト</button></div>`
+      : `<div class="muted" style="font-size:12px">APIキーは不要です。Codexが管理するChatGPTログインを使います。</div>
+         <div class="actions" style="margin-top:10px"><button class="btn small" id="loginChatGPT">ChatGPTでサインイン</button></div>`;
+  return `<details class="settings-section secondary" ${active ? 'open' : ''}>
+    <summary>ChatGPT / Codex（サブ）${active ? ' · 使用中' : ''}</summary>
+    <div style="margin-top:10px">${body}</div>
+  </details>`;
 }
 
 function settingsModalHtml() {
   const agent = state.bootstrap?.agent || {};
-  const account = agent.account || null;
-  const accountLabel = account?.type === 'chatgpt'
-    ? `ChatGPT ${account.planType || ''}${account.email ? ` · ${account.email}` : ''}`
-    : account ? account.type : null;
-  const codexBody = !agent.available
-    ? `<div class="error">Codexを起動できません: ${esc(agent.error || 'unknown error')}</div>`
-    : account
-      ? `<div class="connection-ok"><strong>接続済み</strong><div class="muted">${esc(accountLabel)}</div></div>
-         <div class="actions"><button class="btn small" id="refreshAgent">状態を更新</button><button class="btn small" id="logoutAgent">ログアウト</button></div>`
-      : `<div class="muted">APIキーは不要です。Codexが管理するChatGPTログインを使います。</div>
-         <button class="btn primary" id="loginChatGPT" style="margin-top:14px">ChatGPTでサインイン</button>
-         <button class="btn small" id="refreshAgent" style="margin-top:14px">ログイン状態を更新</button>`;
   return `<div class="modal-wrap"><div class="modal"><h2>AI接続</h2>
-    <div class="settings-section"><h3>ChatGPT / Codex</h3>${codexBody}
-      <div class="muted" style="font-size:11px;margin-top:12px">rescicleはCodexをアプリ内で起動します。研究フォルダをCodexの作業ディレクトリにはせず、Conversation・Research Objectの要約・ファイル名/サイズ/更新日時だけを渡します。Raw file contentは送信しません。</div>
-    </div>
-    <div class="settings-section"><h3>Claude Code</h3>
-      <div class="muted">Claude Codeを普段使っている場合は、rescicleをMCP serverとして追加できます。rescicleを起動して研究Projectを開いた状態でClaude CodeからResearch Objectを操作できます。</div>
-      <button class="btn" id="copyClaudeSetup" style="margin-top:12px">Claude Code設定コマンドをコピー</button>
-    </div>
+    ${claudeSectionHtml(agent)}
+    ${codexSectionHtml(agent)}
     ${state.error ? `<div class="error">${esc(state.error)}</div>`:''}
     <div class="modal-actions"><button class="btn" id="closeModal">閉じる</button></div></div></div>`;
 }
@@ -188,6 +213,7 @@ function bind() {
   document.getElementById('refreshAgent')?.addEventListener('click', refreshAgent);
   document.getElementById('logoutAgent')?.addEventListener('click', logoutAgent);
   document.getElementById('copyClaudeSetup')?.addEventListener('click', copyClaudeSetup);
+  document.querySelectorAll('[data-backend]').forEach(b => b.addEventListener('click', () => setBackend(b.dataset.backend)));
   const messages = document.getElementById('messages'); if (messages) messages.scrollTop = messages.scrollHeight;
 }
 
@@ -211,6 +237,10 @@ async function sendMessage() {
   state.loading = false; render();
 }
 
+async function setBackend(backend) {
+  try { state.bootstrap.agent = await api.agentSetBackend(backend); state.error = null; render(); }
+  catch (e) { state.error = e.message || String(e); render(); }
+}
 async function refreshAgent() {
   try { state.bootstrap.agent = await api.agentRefresh(); state.error = null; render(); }
   catch (e) { state.error = e.message || String(e); render(); }

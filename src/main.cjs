@@ -5,14 +5,21 @@ const { RescicleDB } = require('./db.cjs');
 const { scanFiles, resolveProjectFile } = require('./files.cjs');
 const { CodexAppServer } = require('./codex-client.cjs');
 const { CodexAgent } = require('./agent.cjs');
+const { ClaudeAgent } = require('./claude-agent.cjs');
 const { runStdioMcp } = require('./mcp-server.cjs');
+
+const BACKENDS = ['claude', 'codex'];
+const DEFAULT_BACKEND = 'claude';
 
 let mainWindow;
 let db;
 let codex;
 let agent;
+let claudeAgent;
 let currentProjectId = null;
 let projectThreads = {};
+let projectClaudeSessions = {};
+let agentBackend = DEFAULT_BACKEND;
 
 function settingsPath() { return path.join(app.getPath('userData'), 'settings.json'); }
 function loadSettings() {
@@ -20,15 +27,22 @@ function loadSettings() {
     const x = JSON.parse(fs.readFileSync(settingsPath(), 'utf8'));
     currentProjectId = x.currentProjectId || null;
     projectThreads = x.projectThreads || {};
+    projectClaudeSessions = x.projectClaudeSessions || {};
+    agentBackend = BACKENDS.includes(x.agentBackend) ? x.agentBackend : DEFAULT_BACKEND;
   } catch {}
 }
 function saveSettings() {
   fs.mkdirSync(path.dirname(settingsPath()), { recursive: true });
-  fs.writeFileSync(settingsPath(), JSON.stringify({ currentProjectId, projectThreads }, null, 2));
+  fs.writeFileSync(settingsPath(), JSON.stringify({ currentProjectId, projectThreads, projectClaudeSessions, agentBackend }, null, 2));
 }
 function setThreadId(projectId, threadId) {
   if (threadId) projectThreads[projectId] = threadId;
   else delete projectThreads[projectId];
+  saveSettings();
+}
+function setClaudeSessionId(projectId, sessionId) {
+  if (sessionId) projectClaudeSessions[projectId] = sessionId;
+  else delete projectClaudeSessions[projectId];
   saveSettings();
 }
 
@@ -58,13 +72,28 @@ function createWindow() {
   mainWindow.webContents.on('will-navigate', event => event.preventDefault());
 }
 
-async function agentStatus() {
+async function codexStatus() {
   try {
     const result = await codex.account();
     return { available: true, account: result.account || null, requiresOpenaiAuth: Boolean(result.requiresOpenaiAuth), provider: 'codex' };
   } catch (error) {
     return { available: false, account: null, provider: 'codex', error: error.message };
   }
+}
+
+async function claudeStatus() {
+  try { return await claudeAgent.status(); }
+  catch (error) { return { available: false, provider: 'claude', error: error.message, bin: null, version: null }; }
+}
+
+async function agentStatus() {
+  const [claude, codexInfo] = await Promise.all([claudeStatus(), codexStatus()]);
+  // The flat codex fields stay for backwards compatibility with existing callers.
+  return { ...codexInfo, backend: agentBackend, claude, codex: codexInfo };
+}
+
+function activeAgent() {
+  return agentBackend === 'codex' ? agent : claudeAgent;
 }
 
 function claudeSetupCommand() {
@@ -120,9 +149,16 @@ function installIpc() {
     if (!project) throw new Error('project not found');
     db.saveMessage(projectId, 'user', String(text).trim());
     const files = scanFiles(project.root_path, 120);
-    const result = await agent.chat({ db, projectId, text: String(text).trim(), selectedObjectId, fileIndex: files });
+    const result = await activeAgent().chat({ db, projectId, text: String(text).trim(), selectedObjectId, fileIndex: files });
     db.saveMessage(projectId, 'assistant', result.reply);
     return { ...result, workspace: db.workspace(projectId) };
+  });
+
+  on('agent:set-backend', async backend => {
+    if (!BACKENDS.includes(backend)) throw new Error(`unknown agent backend: ${backend}`);
+    agentBackend = backend;
+    saveSettings();
+    return agentStatus();
   });
 
   on('claude:setup-info', async () => ({ command: claudeSetupCommand(), executable: process.execPath }));
@@ -145,6 +181,7 @@ if (process.argv.includes('--mcp-server')) {
     const workDir = path.join(app.getPath('userData'), 'agent-workspace');
     codex = new CodexAppServer({ workDir, clientVersion: app.getVersion() });
     agent = new CodexAgent({ codex, workDir, getThreadId: id => projectThreads[id] || null, setThreadId });
+    claudeAgent = new ClaudeAgent({ workDir, getSessionId: id => projectClaudeSessions[id] || null, setSessionId: setClaudeSessionId });
     installIpc();
     createWindow();
   });
