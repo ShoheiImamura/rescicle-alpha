@@ -156,17 +156,24 @@ function codexSectionHtml(agent) {
   const accountLabel = account?.type === 'chatgpt'
     ? `ChatGPT ${account.planType || ''}${account.email ? ` · ${account.email}` : ''}`
     : account ? account.type : null;
-  const body = !codex.available
-    ? `<div class="error">Codexを起動できません: ${esc(codex.error || 'unknown error')}</div>`
-    : account
-      ? `<div class="muted" style="font-size:12px">接続済み · ${esc(accountLabel)}</div>
-         <div class="actions" style="margin-top:10px">${backendPickerHtml('codex', active)}<button class="btn small" id="logoutAgent">ログアウト</button></div>`
-      : `<div class="muted" style="font-size:12px">APIキーは不要です。Codexが管理するChatGPTログインを使います。</div>
-         <div class="actions" style="margin-top:10px"><button class="btn small" id="loginChatGPT">ChatGPTでサインイン</button></div>`;
-  return `<details class="settings-section secondary" ${active ? 'open' : ''}>
-    <summary>ChatGPT / Codex（サブ）${active ? ' · 使用中' : ''}</summary>
-    <div style="margin-top:10px">${body}</div>
-  </details>`;
+  // Secondary path, but sign-in and sign-out stay one click away rather than
+  // hidden behind a disclosure.
+  let status;
+  let actions;
+  if (!codex.available) {
+    status = `<span class="status-bad">起動できません: ${esc(codex.error || 'unknown error')}</span>`;
+    actions = '';
+  } else if (account) {
+    status = `接続済み · ${esc(accountLabel)}`;
+    actions = `${backendPickerHtml('codex', active)}<button class="btn small" id="logoutAgent">ログアウト</button>`;
+  } else {
+    status = '未サインイン · APIキーは不要です';
+    actions = '<button class="btn small" id="loginChatGPT">ChatGPTでサインイン</button>';
+  }
+  return `<div class="settings-section secondary">
+    <div class="secondary-head"><h3>ChatGPT / Codex<span class="side-tag">サブ</span></h3><div class="actions">${actions}</div></div>
+    <div class="muted secondary-status">${status}</div>
+  </div>`;
 }
 
 function settingsModalHtml() {
