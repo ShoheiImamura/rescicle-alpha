@@ -165,14 +165,8 @@ class CodexAppServer extends EventEmitter {
     const result = await this.request('thread/start', {
       cwd,
       approvalPolicy: 'never',
-      sandboxPolicy: {
-        type: 'readOnly',
-        access: {
-          type: 'restricted',
-          includePlatformDefaults: true,
-          readableRoots: [cwd]
-        }
-      },
+      // Codex 0.154 rejects readOnly.access; restricted reads now need a named permissionProfile.
+      sandboxPolicy: { type: 'readOnly' },
       personality: 'friendly',
       serviceName: 'rescicle'
     }, 60000);
@@ -192,14 +186,8 @@ class CodexAppServer extends EventEmitter {
       input: [{ type: 'text', text }],
       cwd,
       approvalPolicy: 'never',
-      sandboxPolicy: {
-        type: 'readOnly',
-        access: {
-          type: 'restricted',
-          includePlatformDefaults: true,
-          readableRoots: [cwd]
-        }
-      },
+      // Codex 0.154 rejects readOnly.access; restricted reads now need a named permissionProfile.
+      sandboxPolicy: { type: 'readOnly' },
       outputSchema,
       personality: 'friendly'
     }, 60000);

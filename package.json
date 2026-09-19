@@ -11,7 +11,7 @@
     "start": "electron-forge start",
     "package": "electron-forge package",
     "make": "electron-forge make",
-    "test": "node scripts/smoke-test.cjs && node scripts/codex-protocol-test.cjs && node scripts/mcp-protocol-test.cjs"
+    "test": "node scripts/smoke-test.cjs && node scripts/codex-protocol-test.cjs && node scripts/mcp-protocol-test.cjs && node scripts/claude-agent-test.cjs"
   },
   "dependencies": {
     "@openai/codex": "0.154.0"

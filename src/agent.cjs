@@ -43,6 +43,21 @@ function ensureAgentWorkspace(workDir) {
   }
 }
 
+// Shared by every agent backend so each one sees the same research context and the same
+// file boundary: names and metadata only, never raw file contents.
+function buildPrompt({ db, projectId, text, selectedObjectId, fileIndex }) {
+  const context = db.context(projectId, selectedObjectId);
+  const safeFiles = (fileIndex || []).slice(0, 120).map(f => ({ path: f.relative_path, size_bytes: f.size_bytes, modified_at: f.modified_at }));
+  return [
+    'PROJECT CONTEXT (rescicle local record, summarized):',
+    JSON.stringify(context),
+    'FILE INDEX (names/metadata only; raw file contents were not sent):',
+    JSON.stringify(safeFiles),
+    'CURRENT USER MESSAGE:',
+    text
+  ].join('\n\n');
+}
+
 class CodexAgent {
   constructor({ codex, workDir, getThreadId, setThreadId }) {
     this.codex = codex;
@@ -71,16 +86,7 @@ class CodexAgent {
     const account = await this.codex.account();
     if (!account?.account) throw new Error('ChatGPTにサインインしてください。AI設定からログインできます。');
     const threadId = await this.ensureThread(projectId);
-    const context = db.context(projectId, selectedObjectId);
-    const safeFiles = fileIndex.slice(0, 120).map(f => ({ path: f.relative_path, size_bytes: f.size_bytes, modified_at: f.modified_at }));
-    const prompt = [
-      'PROJECT CONTEXT (rescicle local record, summarized):',
-      JSON.stringify(context),
-      'FILE INDEX (names/metadata only; raw file contents were not sent):',
-      JSON.stringify(safeFiles),
-      'CURRENT USER MESSAGE:',
-      text
-    ].join('\n\n');
+    const prompt = buildPrompt({ db, projectId, text, selectedObjectId, fileIndex });
     const output = await this.codex.runStructuredTurn({ threadId, text: prompt, outputSchema: RESPONSE_SCHEMA, cwd: this.workDir });
     let structured;
     try { structured = JSON.parse(output); }
@@ -131,4 +137,4 @@ function applyOperations({ db, project, projectId, operations }) {
   return applied;
 }
 
-module.exports = { CodexAgent, applyOperations, RESPONSE_SCHEMA, AGENT_INSTRUCTIONS, ensureAgentWorkspace };
+module.exports = { CodexAgent, applyOperations, buildPrompt, RESPONSE_SCHEMA, AGENT_INSTRUCTIONS, ensureAgentWorkspace };

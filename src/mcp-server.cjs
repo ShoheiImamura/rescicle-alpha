@@ -1,4 +1,5 @@
 const readline = require('node:readline');
+const fs = require('node:fs');
 const { scanFiles, resolveProjectFile } = require('./files.cjs');
 
 function textResult(value) {
@@ -32,7 +33,18 @@ function createMcpServer({ db, getCurrentProjectId }) {
   return { tools, callTool };
 }
 
-function runStdioMcp({ db, getCurrentProjectId, input = process.stdin, output = process.stdout }) {
+// In a packaged Electron app on Windows, process.stdin is a dummy Readable that ends
+// immediately, so stdio MCP clients (Claude Code) never reach the server. Reading fd 0
+// directly works in both Electron and plain Node.
+function stdinStream() {
+  try {
+    return fs.createReadStream(null, { fd: 0, autoClose: false });
+  } catch {
+    return process.stdin;
+  }
+}
+
+function runStdioMcp({ db, getCurrentProjectId, input = stdinStream(), output = process.stdout }) {
   const server = createMcpServer({ db, getCurrentProjectId });
   const rl = readline.createInterface({ input });
   const send = msg => output.write(`${JSON.stringify(msg)}\n`);
