@@ -170,7 +170,14 @@ async function initCore() {
   db = new RescicleDB(path.join(app.getPath('userData'), 'rescicle.sqlite'));
 }
 
-if (process.argv.includes('--mcp-server')) {
+// Squirrel starts the app with --squirrel-install / --squirrel-updated /
+// --squirrel-uninstall / --squirrel-obsolete while installing, updating or
+// removing it. electron-squirrel-startup creates or removes the Start menu and
+// desktop shortcuts for those runs and returns true; quitting before 'ready'
+// keeps a window from opening in the middle of the installer.
+if (require('electron-squirrel-startup')) {
+  app.quit();
+} else if (process.argv.includes('--mcp-server')) {
   app.whenReady().then(async () => {
     await initCore();
     runStdioMcp({ db, getCurrentProjectId: () => currentProjectId });

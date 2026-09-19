@@ -1,4 +1,4 @@
-# rescicle — first user build v0.0.2
+# rescicle — first user build v0.0.3
 
 Local-first desktop MVP for the first research user.
 
@@ -6,11 +6,27 @@ Local-first desktop MVP for the first research user.
 
 Windows (x64) installer:
 
-**[Download rescicle Setup (latest release)](https://github.com/ShoheiImamura/rescicle-alpha/releases/latest/download/rescicle-0.0.2.Setup.exe)**
+**[Download rescicle Setup (latest release)](https://github.com/ShoheiImamura/rescicle-alpha/releases/latest/download/rescicle-0.0.3.Setup.exe)**
 
 All versions are on the [Releases page](https://github.com/ShoheiImamura/rescicle-alpha/releases).
 
-Run the downloaded `rescicle-0.0.2 Setup.exe`. The installer is not code-signed, so Windows SmartScreen may show a warning; choose **詳細情報** → **実行** to continue. rescicle installs per user (no administrator rights needed) and launches automatically when installation finishes.
+Run the downloaded `rescicle-0.0.3 Setup.exe`. The installer is not code-signed, so Windows SmartScreen may show a warning; choose **詳細情報** → **実行** to continue. rescicle installs per user (no administrator rights needed) and launches automatically when installation finishes.
+
+### Uninstall
+
+Remove rescicle from **設定 → アプリ → インストールされているアプリ** (or *Apps & features*) like any other application. This deletes the program files under `%LocalAppData%\rescicle` together with its shortcuts.
+
+Your research folders are never touched: rescicle only references files in place.
+
+The following are kept on purpose so that a reinstall picks up where you left off. Delete them by hand if you want a clean slate:
+
+- `%AppData%\rescicle` — settings, the SQLite database with research objects and conversations, and the agent workspace.
+- `%UserProfile%\.codex` — the ChatGPT sign-in kept by the bundled Codex. Use **サインアウト** in **AI接続** before uninstalling if you want it cleared.
+- The Claude Code MCP registration, if you ran the setup command. Claude Code will otherwise keep reporting a failed `rescicle` server:
+
+```powershell
+claude mcp remove --scope user rescicle
+```
 
 ## User experience
 
