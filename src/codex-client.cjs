@@ -34,7 +34,9 @@ class CodexAppServer extends EventEmitter {
     this.proc = this.spawnImpl(process.execPath, [codexEntry, 'app-server'], {
       cwd: this.workDir,
       env,
-      stdio: ['pipe', 'pipe', 'pipe']
+      stdio: ['pipe', 'pipe', 'pipe'],
+      // ELECTRON_RUN_AS_NODE pops up a console window on Windows unless it is hidden.
+      windowsHide: true
     });
 
     this.proc.on('exit', (code, signal) => {

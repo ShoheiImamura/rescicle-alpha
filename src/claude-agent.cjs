@@ -79,7 +79,9 @@ class ClaudeAgent {
       const child = this.spawnImpl(bin, args, {
         cwd: this.workDir,
         env: { ...process.env },
-        stdio: ['pipe', 'pipe', 'pipe']
+        stdio: ['pipe', 'pipe', 'pipe'],
+        // Without this the CLI gets its own console window on Windows.
+        windowsHide: true
       });
       let out = '';
       let err = '';
