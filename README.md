@@ -6,11 +6,11 @@
 
 Windows (x64) インストーラ:
 
-**[rescicle Setup をダウンロード（最新リリース）](https://github.com/ShoheiImamura/rescicle-alpha/releases/latest/download/rescicle-0.0.3.Setup.exe)**
+**[rescicle Setup をダウンロード（最新リリース）](https://github.com/ShoheiImamura/rescicle-alpha/releases/latest/download/rescicle-Setup.exe)**
 
 過去のバージョンは [Releasesページ](https://github.com/ShoheiImamura/rescicle-alpha/releases) にあります。
 
-ダウンロードした `rescicle-0.0.3 Setup.exe` を実行してください。インストーラにはコード署名がないため、Windows SmartScreenの警告が出ることがあります。その場合は **詳細情報** → **実行** を選んでください。rescicleはユーザー単位でインストールされるので管理者権限は不要で、インストール完了後に自動で起動します。
+ダウンロードした `rescicle-Setup.exe` を実行してください。インストーラにはコード署名がないため、Windows SmartScreenの警告が出ることがあります。その場合は **詳細情報** → **実行** を選んでください。rescicleはユーザー単位でインストールされるので管理者権限は不要で、インストール完了後に自動で起動します。
 
 ### アンインストール
 
@@ -114,9 +114,9 @@ npm run make
 
 1. バージョンを上げる: `npm version 0.0.4 --no-git-tag-version` してコミット。
 2. タグを打って push: `git tag v0.0.4 && git push origin main --tags`。
-3. ワークフローがテストを実行し、`windows-latest` でインストーラをビルドし、`v0.0.4` GitHub Releaseを作成して `rescicle-0.0.4 Setup.exe`（表示名は `rescicle-0.0.4.Setup.exe`）を添付します。
+3. ワークフローがテストを実行し、`windows-latest` でインストーラをビルドし、`v0.0.4` GitHub Releaseを作成して `rescicle-Setup.exe` を添付します。
 
-タグは `v<package.jsonのversion>` と一致している必要があります。publisherはパッケージのバージョンでリリース名を決めます。バージョンを変えたら、このREADME冒頭のダウンロードリンクも更新してください。
+タグは `v<package.jsonのversion>` と一致している必要があります。publisherはパッケージのバージョンでリリース名を決めます。インストーラのファイル名にはバージョンが入らないので、冒頭のダウンロードリンクは常に最新リリースを指し、バージョンを上げても更新は不要です。
 
 AIランタイムは同梱していません。rescicleはユーザーがすでにインストール・サインイン済みの `claude` CLIを動かすため、インストーラにはアプリ本体とElectronしか入りません。
 
