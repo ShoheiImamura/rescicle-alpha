@@ -6,7 +6,7 @@ After 10–30 minutes of ordinary conversation, a researcher can see their Quest
 
 ## Primary path
 
-`Install -> select research folder -> Sign in with ChatGPT -> converse -> objects appear -> confirm/correct -> link local data`
+`Install -> select research folder -> converse via the local Claude Code -> objects appear -> confirm/correct -> link local data`
 
 No API key is required for the primary path.
 
@@ -17,6 +17,6 @@ Claude Code users can connect their existing Claude Code environment to rescicle
 ## Deliberate constraints
 
 - No raw-data auto upload.
-- Codex never receives the research folder as its working directory.
+- The agent never receives the research folder as its working directory.
 - AI cannot write SQLite directly; only validated domain operations are applied.
 - Agent-generated scientific content starts as `proposed`.
