@@ -5,6 +5,7 @@ contextBridge.exposeInMainWorld('rescicle', {
   chooseFolder: () => ipcRenderer.invoke('project:choose-folder'),
   createProject: payload => ipcRenderer.invoke('project:create', payload),
   openProject: projectId => ipcRenderer.invoke('project:open', projectId),
+  renameProject: (projectId, name) => ipcRenderer.invoke('project:rename', { projectId, name }),
   listObjects: (projectId, type) => ipcRenderer.invoke('objects:list', { projectId, type }),
   getObject: objectId => ipcRenderer.invoke('object:get', objectId),
   setObjectStatus: (objectId, status) => ipcRenderer.invoke('object:set-status', { objectId, status }),

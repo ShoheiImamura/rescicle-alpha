@@ -156,3 +156,4 @@ button { cursor: pointer; }
 .card-expand .relation-row { padding: 9px 0; }
 .expand-empty { color: #89877f; font-size: 12px; padding: 8px 0; }
 .map-node.selected rect { stroke: #1d1d1b; stroke-width: 2; }
+.project-name-input { max-width: 420px; font-size: 19px; font-weight: 680; letter-spacing: -.02em; }

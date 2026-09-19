@@ -14,6 +14,12 @@ fs.writeFileSync(path.join(research, 'nested', '25K.csv'), 'temperature,resistan
 const db = new RescicleDB(path.join(tmp, 'rescicle.sqlite'));
 const project = db.createProject('Low temperature study', research);
 
+assert.equal(db.renameProject(project.id, '  Low temperature study (2026)  ').name, 'Low temperature study (2026)');
+assert.equal(db.getProject(project.id).name, 'Low temperature study (2026)');
+let emptyName = false;
+try { db.renameProject(project.id, '   '); } catch { emptyName = true; }
+assert.equal(emptyName, true);
+
 const q = db.createObject(project.id, { type:'question', title:'How does resistance change?', body:null, origin:'researcher', status:'confirmed' }, 'researcher');
 const h = db.createObject(project.id, { type:'hypothesis', title:'State change near 25 K', body:null, origin:'researcher', status:'proposed' }, 'researcher');
 db.createRelation(project.id, { subjectId:h.id, predicate:'addresses', objectId:q.id, origin:'researcher', status:'proposed' }, 'researcher');

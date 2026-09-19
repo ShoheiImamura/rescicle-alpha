@@ -32,6 +32,8 @@ let state = {
   files: [],
   loading: false,
   modal: null,
+  renaming: false,
+  renameError: null,
   error: null
 };
 
@@ -91,12 +93,20 @@ function contentHtml() {
   return objectListHtml(state.currentType);
 }
 
+function projectTitleHtml() {
+  const name = state.workspace.project.name;
+  if (!state.renaming) {
+    return `<div class="page-title"><h1>${esc(name)}</h1><button class="btn small" id="renameProject">名前を変更</button></div>`;
+  }
+  return `<div class="page-title"><input id="projectNameInput" class="input project-name-input" value="${esc(name)}"><button class="btn primary small" id="saveProjectName">保存</button><button class="btn small" id="cancelProjectName">キャンセル</button></div>${state.renameError ? `<div class="error">${esc(state.renameError)}</div>` : ''}`;
+}
+
 function overviewHtml() {
   const objects = state.workspace.objects || [];
   // Notes sit outside the chain that allowedRelation() permits, so they are never
   // drawn on the map. List them under it rather than letting them disappear.
   const offMap = objects.filter(o => o.status !== 'rejected' && !CHAIN.includes(o.type));
-  return `<div class="page-title"><h1>${esc(state.workspace.project.name)}</h1></div>
+  return `${projectTitleHtml()}
     <div class="muted page-note">問い → 仮説 → 予測 → 測定 → データ のつながりです。右側のAIと話すと、ここが育っていきます。</div>
     ${mapHtml()}
     ${state.selectedObject && CHAIN.includes(state.selectedObject.type) ? cardHtml(state.selectedObject) : ''}
@@ -280,6 +290,17 @@ function bind() {
     if (state.selectedObject && state.selectedObject.id === id) await loadSelected(id);
     else render();
   }));
+  document.getElementById('renameProject')?.addEventListener('click', () => {
+    state.renaming = true; state.renameError = null; render();
+    const input = document.getElementById('projectNameInput');
+    input?.focus(); input?.select();
+  });
+  document.getElementById('cancelProjectName')?.addEventListener('click', cancelRename);
+  document.getElementById('saveProjectName')?.addEventListener('click', saveProjectName);
+  document.getElementById('projectNameInput')?.addEventListener('keydown', event => {
+    if (event.key === 'Enter') saveProjectName();
+    if (event.key === 'Escape') cancelRename();
+  });
   document.getElementById('scanFiles')?.addEventListener('click', async () => { state.files = await api.scanFiles(state.workspace.project.id); render(); });
   document.querySelectorAll('[data-register-path]').forEach(b => b.addEventListener('click', async () => {
     await api.registerAsset(state.workspace.project.id, b.dataset.registerPath); await refreshWorkspace(); render();
@@ -291,6 +312,23 @@ function bind() {
   document.getElementById('refreshAgent')?.addEventListener('click', refreshAgent);
   document.getElementById('copyClaudeSetup')?.addEventListener('click', copyClaudeSetup);
   const messages = document.getElementById('messages'); if (messages) messages.scrollTop = messages.scrollHeight;
+}
+
+function cancelRename() {
+  state.renaming = false; state.renameError = null; render();
+}
+
+async function saveProjectName() {
+  const name = document.getElementById('projectNameInput')?.value.trim();
+  if (!name) { state.renameError = '研究名を入力してください。'; render(); return; }
+  try {
+    state.workspace = await api.renameProject(state.workspace.project.id, name);
+    // bootstrap.projects backs the project list, so keep it in step.
+    const listed = state.bootstrap?.projects?.find(x => x.id === state.workspace.project.id);
+    if (listed) listed.name = state.workspace.project.name;
+    state.renaming = false; state.renameError = null;
+  } catch (e) { state.renameError = e.message || String(e); }
+  render();
 }
 
 async function loadSelected(id) {

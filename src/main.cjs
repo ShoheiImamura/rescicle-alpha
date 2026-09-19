@@ -98,6 +98,10 @@ function installIpc() {
     currentProjectId = projectId; db.touchProject(projectId); saveSettings();
     return db.workspace(projectId);
   });
+  on('project:rename', async ({ projectId, name }) => {
+    db.renameProject(projectId, name, 'researcher');
+    return db.workspace(projectId);
+  });
   on('objects:list', async ({ projectId, type }) => db.listObjects(projectId, type || null));
   on('object:get', async objectId => db.getObject(objectId));
   on('object:set-status', async ({ objectId, status }) => db.updateObjectStatus(objectId, status, 'researcher'));

@@ -32,6 +32,17 @@ class RescicleDB {
     return plain(this.db.prepare('SELECT * FROM projects WHERE id=?').get(projectId));
   }
 
+  renameProject(projectId, name, actor = 'researcher') {
+    const project = this.getProject(projectId);
+    if (!project) throw new Error('project not found');
+    const next = String(name ?? '').trim();
+    if (!next) throw new Error('project name is required');
+    if (next === project.name) return project;
+    this.db.prepare('UPDATE projects SET name=? WHERE id=?').run(next, projectId);
+    this.event(projectId, 'project_renamed', actor, { detail: { from: project.name, to: next } });
+    return this.getProject(projectId);
+  }
+
   touchProject(projectId) {
     this.db.prepare('UPDATE projects SET last_opened_at=? WHERE id=?').run(now(), projectId);
   }
