@@ -56,8 +56,24 @@ jobs:
             gh release create "$GITHUB_REF_NAME" "$exe" \
               --title "$GITHUB_REF_NAME" --generate-notes
           fi
-          gh release view "$GITHUB_REF_NAME" --json assets \
-            | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const a=JSON.parse(s).assets||[];console.log(a.map(x=>x.name+" "+x.size).join("\n"));if(!a.some(x=>x.name==="rescicle-Setup.exe")){console.error("rescicle-Setup.exe is missing from the release");process.exit(1)}})'
+          # A draft release is invisible to anyone who is not signed in, and
+          # releases/latest/download only ever resolves against published ones,
+          # so state outright that this release is published and is the latest.
+          gh release edit "$GITHUB_REF_NAME" --draft=false --prerelease=false --latest
+          gh release view "$GITHUB_REF_NAME" --json isDraft,isLatest,url,assets \
+            | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const r=JSON.parse(s);const names=(r.assets||[]).map(a=>a.name);console.log("url:",r.url,"| draft:",r.isDraft,"| latest:",r.isLatest,"| assets:",names.join(", ")||"(none)");if(r.isDraft){console.error("release is still a draft");process.exit(1)}if(!names.includes("rescicle-Setup.exe")){console.error("rescicle-Setup.exe is missing from the release");process.exit(1)}})'
+
+          # The check that actually matters: the link the README hands people. A
+          # green job that leaves it 404ing is the whole reason this step exists.
+          url="https://github.com/${GITHUB_REPOSITORY}/releases/latest/download/rescicle-Setup.exe"
+          for attempt in 1 2 3 4 5 6; do
+            code=$(curl -sL --range 0-0 -o /dev/null -w '%{http_code}' "$url" || true)
+            echo "attempt $attempt: $url -> $code"
+            case "$code" in 200|206) exit 0;; esac
+            sleep 5
+          done
+          echo "the README download link still does not resolve" >&2
+          exit 1
 
       - name: Keep the installer as a workflow artifact
         uses: actions/upload-artifact@v7
