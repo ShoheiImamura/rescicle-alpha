@@ -16,6 +16,8 @@ let claudeAgent;
 let currentProjectId = null;
 let projectClaudeSessions = {};
 
+if (process.env.RESCICLE_DATA_DIR) app.setPath('userData', path.resolve(process.env.RESCICLE_DATA_DIR));
+
 function settingsPath() { return path.join(app.getPath('userData'), 'settings.json'); }
 function loadSettings() {
   try {
@@ -101,6 +103,10 @@ function installIpc() {
   on('project:rename', async ({ projectId, name }) => {
     db.renameProject(projectId, name, 'researcher');
     return db.workspace(projectId);
+  });
+  on('project:set-root', async ({ projectId, rootPath }) => {
+    const { missing } = db.setProjectRoot(projectId, rootPath, 'researcher');
+    return { workspace: db.workspace(projectId), missing };
   });
   on('objects:list', async ({ projectId, type }) => db.listObjects(projectId, type || null));
   on('object:get', async objectId => db.getObject(objectId));

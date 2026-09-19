@@ -43,6 +43,20 @@ assert.equal(applied.filter(x => x.ok).length, 3);
 assert.equal(db.listObjects(project.id, 'prediction').length, 1);
 assert.equal(db.listObjects(project.id, 'asset').length, 2);
 
+// Re-pointing the research folder: the wrong one can be picked at onboarding and
+// there has to be a way back. Assets hold a path relative to the root, so the call
+// reports the ones the new folder does not have.
+const moved = path.join(tmp, 'moved'); fs.mkdirSync(moved);
+fs.writeFileSync(path.join(moved, '20K.csv'), 'temperature,resistance');
+const rerooted = db.setProjectRoot(project.id, moved);
+assert.equal(rerooted.project.root_path, moved);
+assert.deepEqual(rerooted.missing, [path.join('nested', '25K.csv')]);
+assert.equal(db.setProjectRoot(project.id, research).missing.length, 0);
+let badRoot = 0;
+try { db.setProjectRoot(project.id, path.join(tmp, 'nope')); } catch { badRoot += 1; }
+try { db.setProjectRoot(project.id, path.join(research, '20K.csv')); } catch { badRoot += 1; }
+assert.equal(badRoot, 2);
+
 let blocked = false;
 try { db.registerAsset(project.id, path.join(tmp, 'outside.txt')); } catch { blocked = true; }
 assert.equal(blocked, true);

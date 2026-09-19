@@ -34,11 +34,15 @@ let state = {
   modal: null,
   renaming: false,
   renameDraft: null,
+  rootNotice: null,
   renameError: null,
   error: null
 };
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+// ipcRenderer.invoke rethrows as "Error invoking remote method 'x': Error: …";
+// show what the main process actually said, not the plumbing around it.
+const errText = (e) => String(e?.message ?? e).replace(new RegExp("^Error invoking remote method '[^']*': ?(Error: ?)?"), "");
 const fmtSize = (n) => n < 1024 ? `${n} B` : n < 1024*1024 ? `${(n/1024).toFixed(1)} KB` : `${(n/1024/1024).toFixed(1)} MB`;
 
 async function boot() {
@@ -72,10 +76,10 @@ function onboardingHtml() {
 function workspaceHtml() {
   const w = state.workspace;
   return `<div class="shell ${state.loading ? 'loading':''}">
-    <header class="topbar"><div class="brand">rescicle</div>${projectTitleHtml()}<div class="root-hint">${esc(w.project.root_path)}</div><button class="btn small" id="settingsBtn">AI接続</button></header>
+    <header class="topbar"><div class="brand">rescicle</div>${projectTitleHtml()}<button class="root-hint" id="changeRoot" title="クリックして研究フォルダを変更">${esc(w.project.root_path)}</button><button class="btn small" id="settingsBtn">AI接続</button></header>
     <div class="layout">
       <aside class="sidebar">${sidebarHtml()}</aside>
-      <main class="content"><div class="content-inner">${contentHtml()}</div></main>
+      <main class="content"><div class="content-inner">${noticeHtml()}${contentHtml()}</div></main>
       <aside class="chat">${chatHtml()}</aside>
     </div>
     ${state.modal === 'settings' ? settingsModalHtml() : ''}
@@ -92,6 +96,11 @@ function contentHtml() {
   if (state.currentType === 'overview') return overviewHtml();
   if (state.currentType === 'files') return filesHtml();
   return objectListHtml(state.currentType);
+}
+
+function noticeHtml() {
+  if (!state.rootNotice) return '';
+  return `<div class="notice"><span>${esc(state.rootNotice)}</span><button class="btn small" id="dismissNotice">閉じる</button></div>`;
 }
 
 function projectTitleHtml() {
@@ -312,6 +321,8 @@ function bind() {
     if (event.key === 'Enter') saveProjectName();
     if (event.key === 'Escape') cancelRename();
   });
+  document.getElementById('changeRoot')?.addEventListener('click', changeProjectRoot);
+  document.getElementById('dismissNotice')?.addEventListener('click', () => { state.rootNotice = null; render(); });
   document.getElementById('scanFiles')?.addEventListener('click', async () => { state.files = await api.scanFiles(state.workspace.project.id); render(); });
   document.querySelectorAll('[data-register-path]').forEach(b => b.addEventListener('click', async () => {
     await api.registerAsset(state.workspace.project.id, b.dataset.registerPath); await refreshWorkspace(); render();
@@ -339,7 +350,22 @@ async function saveProjectName() {
     const listed = state.bootstrap?.projects?.find(x => x.id === state.workspace.project.id);
     if (listed) listed.name = state.workspace.project.name;
     state.renaming = false; state.renameDraft = null; state.renameError = null;
-  } catch (e) { state.renameError = e.message || String(e); }
+  } catch (e) { state.renameError = errText(e); }
+  render();
+}
+
+async function changeProjectRoot() {
+  const folder = await api.chooseFolder();
+  if (!folder) return;
+  try {
+    const result = await api.setProjectRoot(state.workspace.project.id, folder);
+    state.workspace = result.workspace;
+    state.files = [];   // the cached scan belongs to the old folder
+    const missing = result.missing || [];
+    state.rootNotice = missing.length
+      ? `登録済みデータのうち ${missing.length} 件が新しいフォルダに見つかりません: ${missing.slice(0, 3).join(', ')}${missing.length > 3 ? ' ほか' : ''}`
+      : null;
+  } catch (e) { state.rootNotice = `研究フォルダを変更できませんでした: ${errText(e)}`; }
   render();
 }
 
@@ -359,17 +385,17 @@ async function sendMessage() {
     const result = await api.sendMessage({ projectId: state.workspace.project.id, text, selectedObjectId: state.selectedObjectId });
     state.workspace = result.workspace;
     if (state.selectedObjectId) state.selectedObject = await api.getObject(state.selectedObjectId);
-  } catch (e) { state.error = e.message || String(e); }
+  } catch (e) { state.error = errText(e); }
   state.loading = false; render();
 }
 
 async function refreshAgent() {
   try { state.bootstrap.agent = await api.agentRefresh(); state.error = null; render(); }
-  catch (e) { state.error = e.message || String(e); render(); }
+  catch (e) { state.error = errText(e); render(); }
 }
 async function copyClaudeSetup() {
   try { await api.copyClaudeSetup(); state.error = null; alert('Claude Code用の設定コマンドをコピーしました。ターミナルで実行してください。'); }
-  catch (e) { state.error = e.message || String(e); render(); }
+  catch (e) { state.error = errText(e); render(); }
 }
 
 boot().catch(e => { root.innerHTML = `<div class="onboarding"><div class="onboarding-card"><div class="brand">rescicle</div><div class="error">${esc(e.message || e)}</div></div></div>`; });

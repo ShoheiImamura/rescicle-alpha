@@ -163,3 +163,9 @@ button.project-title:hover { background: #eeede9; }
 .expand-empty { color: #89877f; font-size: 12px; padding: 8px 0; }
 .map-node.selected rect { stroke: #1d1d1b; stroke-width: 2; }
 .project-name-input { max-width: 340px; padding: 5px 9px; font-size: 13px; font-weight: 700; }
+
+/* The research folder is changed where it is shown, like the name next to it. */
+button.root-hint { border: 0; background: transparent; font: inherit; font-size: 11px; padding: 3px 6px; border-radius: 7px; cursor: pointer; }
+button.root-hint:hover { background: #eeede9; color: #5f5e58; }
+.notice { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; padding: 11px 13px; border: 1px solid #e3ddc9; background: #fbf8ee; border-radius: 10px; font-size: 12px; color: #6a6448; }
+.notice span { flex: 1; }

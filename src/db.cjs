@@ -43,6 +43,28 @@ class RescicleDB {
     return this.getProject(projectId);
   }
 
+  setProjectRoot(projectId, rootPath, actor = 'researcher') {
+    const project = this.getProject(projectId);
+    if (!project) throw new Error('project not found');
+    const raw = String(rootPath ?? '').trim();
+    if (!raw) throw new Error('research folder is required');
+    const next = path.resolve(raw);
+    let stat;
+    try { stat = fs.statSync(next); } catch { throw new Error('research folder not found'); }
+    if (!stat.isDirectory()) throw new Error('research folder must be a directory');
+    if (next === project.root_path) return { project, missing: [] };
+    this.db.prepare('UPDATE projects SET root_path=? WHERE id=?').run(next, projectId);
+    this.event(projectId, 'project_root_changed', actor, { detail: { from: project.root_path, to: next } });
+    // Assets are stored as a path relative to the root, so re-pointing it can leave
+    // some of them hanging. Report which rather than listing files that are gone.
+    const missing = this.db.prepare(`SELECT a.relative_path FROM assets a
+      JOIN objects o ON o.id=a.object_id WHERE o.project_id=? ORDER BY a.relative_path`)
+      .all(projectId)
+      .map(row => row.relative_path)
+      .filter(rel => !fs.existsSync(path.join(next, rel)));
+    return { project: this.getProject(projectId), missing };
+  }
+
   touchProject(projectId) {
     this.db.prepare('UPDATE projects SET last_opened_at=? WHERE id=?').run(now(), projectId);
   }
