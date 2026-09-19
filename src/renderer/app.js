@@ -45,8 +45,11 @@ async function boot() {
 }
 
 function render() {
+  const scrollTop = document.querySelector('.content')?.scrollTop ?? 0;
   root.innerHTML = state.workspace ? workspaceHtml() : onboardingHtml();
   bind();
+  const content = document.querySelector('.content');
+  if (content) content.scrollTop = scrollTop;
   if (state.selectedObjectId && !state.selectedObject) loadSelected(state.selectedObjectId);
 }
 
@@ -83,7 +86,6 @@ function sidebarHtml() {
 }
 
 function contentHtml() {
-  if (state.selectedObject) return objectDetailHtml(state.selectedObject);
   if (state.currentType === 'overview') return overviewHtml();
   if (state.currentType === 'files') return filesHtml();
   return objectListHtml(state.currentType);
@@ -97,6 +99,7 @@ function overviewHtml() {
   return `<div class="page-title"><h1>${esc(state.workspace.project.name)}</h1></div>
     <div class="muted page-note">問い → 仮説 → 予測 → 測定 → データ のつながりです。右側のAIと話すと、ここが育っていきます。</div>
     ${mapHtml()}
+    ${state.selectedObject && CHAIN.includes(state.selectedObject.type) ? cardHtml(state.selectedObject) : ''}
     ${offMap.length ? `<section class="section"><div class="section-head"><h2>マップに載らないもの</h2></div><div class="object-grid">${offMap.map(cardHtml).join('')}</div></section>` : ''}`;
 }
 
@@ -165,7 +168,7 @@ function mapHtml() {
     const label = TYPE_LABEL[col[0].type] || col[0].type;
     return `<text class="map-col-head" x="${c * (MAP.W + MAP.COL_GAP)}" y="12">${esc(label)}</text>`;
   }).join('');
-  const nodes = [...g.pos.values()].map(({ x, y, o }) => `<g class="map-node ${esc(o.status)}" data-object-id="${o.id}">
+  const nodes = [...g.pos.values()].map(({ x, y, o }) => `<g class="map-node ${esc(o.status)} ${state.selectedObjectId === o.id ? 'selected' : ''}" data-object-id="${o.id}">
       <rect x="${x}" y="${y}" width="${MAP.W}" height="${MAP.H}" rx="10"></rect>
       <text class="map-type" x="${x + MAP.PAD}" y="${y + 17}">${esc(TYPE_LABEL[o.type] || o.type)}</text>
       ${wrapTitle(o.title).map((line, i) => `<text class="map-title" x="${x + MAP.PAD}" y="${y + 36 + i * MAP.LINE}">${esc(line)}</text>`).join('')}
@@ -185,20 +188,26 @@ function statusButtonsHtml(id) {
 }
 
 function cardHtml(o) {
-  return `<div class="card clickable" data-object-id="${o.id}"><div class="card-row"><div class="card-main"><div class="type">${esc(TYPE_LABEL[o.type] || o.type)}</div><div class="card-title">${esc(o.title)}</div>${o.body ? `<div class="card-body">${esc(o.body)}</div>`:''}<div class="pills"><span class="pill ${o.status}">${esc(STATUS_LABEL[o.status] || o.status)}</span><span class="pill ${o.origin==='agent'?'agent':''}">${esc(ORIGIN_LABEL[o.origin] || o.origin)}</span></div></div>${o.status==='proposed' ? `<div class="card-actions">${statusButtonsHtml(o.id)}</div>` : ''}</div></div>`;
+  const open = state.selectedObjectId === o.id;
+  // getObject() carries the relations, and it lands one render later than the click.
+  const full = open && state.selectedObject?.id === o.id ? state.selectedObject : null;
+  return `<div class="card clickable ${open ? 'open' : ''}" data-object-id="${o.id}" data-object-type="${esc(o.type)}"><div class="card-row"><div class="card-main"><div class="type">${esc(TYPE_LABEL[o.type] || o.type)}</div><div class="card-title">${esc(o.title)}</div>${o.body ? `<div class="card-body">${esc(o.body)}</div>`:''}<div class="pills"><span class="pill ${o.status}">${esc(STATUS_LABEL[o.status] || o.status)}</span><span class="pill ${o.origin==='agent'?'agent':''}">${esc(ORIGIN_LABEL[o.origin] || o.origin)}</span></div></div>${o.status==='proposed' ? `<div class="card-actions">${statusButtonsHtml(o.id)}</div>` : ''}</div>${full ? expansionHtml(full) : ''}</div>`;
 }
 
-function objectDetailHtml(o) {
+// The open half of a card: everything the old detail page added on top of what
+// the collapsed card already shows.
+function expansionHtml(o) {
   const links = [
     ...(o.incoming || []).map(r => ({ dir:'←', label:PREDICATE_LABEL[r.predicate] || r.predicate, id:r.subject_id, title:r.subject_title, type:r.subject_type, status:r.status })),
     ...(o.outgoing || []).map(r => ({ dir:'→', label:PREDICATE_LABEL[r.predicate] || r.predicate, id:r.object_id, title:r.object_title, type:r.object_type, status:r.status }))
   ];
-  return `<button class="btn small" id="backBtn">← 戻る</button>
-    <div class="detail-head"><div class="type">${esc(TYPE_LABEL[o.type] || o.type)}</div><h1>${esc(o.title)}</h1><div class="pills"><span class="pill ${o.status}">${esc(STATUS_LABEL[o.status] || o.status)}</span><span class="pill ${o.origin==='agent'?'agent':''}">${esc(ORIGIN_LABEL[o.origin] || o.origin)}</span></div></div>
-    ${o.body ? `<div class="detail-body">${esc(o.body)}</div>`:''}
-    ${o.status==='proposed' ? `<div class="actions object-actions">${statusButtonsHtml(o.id)}</div>` : ''}
-    <section class="section"><div class="section-head"><h2>関連するもの</h2></div>${links.length ? `<div class="card">${links.map(x => `<div class="relation-row clickable" data-object-id="${x.id}"><div class="relation-label">${x.dir} ${esc(x.label)}</div><div><div class="type">${esc(TYPE_LABEL[x.type] || x.type)}</div><div class="relation-object">${esc(x.title)}</div></div>${x.status==='proposed'?'<span class="pill proposed">提案中のつながり</span>':''}</div>`).join('')}</div>` : '<div class="empty">まだつながりはありません。</div>'}</section>
-    ${o.type==='asset' && o.asset ? `<section class="section"><div class="section-head"><h2>ローカルファイル</h2></div><div class="card"><div class="card-body">${esc(o.asset.relative_path)}\n${fmtSize(o.asset.size_bytes)} · ${esc(o.asset.modified_at)}</div></div></section>` : ''}`;
+  const rows = links.map(x => `<div class="relation-row clickable" data-object-id="${x.id}" data-object-type="${esc(x.type)}"><div class="relation-label">${x.dir} ${esc(x.label)}</div><div><div class="type">${esc(TYPE_LABEL[x.type] || x.type)}</div><div class="relation-object">${esc(x.title)}</div></div>${x.status==='proposed'?'<span class="pill proposed">提案中のつながり</span>':''}</div>`).join('');
+  return `<div class="card-expand">
+    <div class="expand-head">関連するもの</div>
+    ${rows || '<div class="expand-empty">まだつながりはありません。</div>'}
+    ${o.type==='asset' && o.asset ? `<div class="expand-head">ローカルファイル</div><div class="card-body">${esc(o.asset.relative_path)}
+${fmtSize(o.asset.size_bytes)} · ${esc(o.asset.modified_at)}</div>` : ''}
+  </div>`;
 }
 
 function filesHtml() {
@@ -253,8 +262,15 @@ function bind() {
     if (state.currentType === 'files' && !state.files.length) state.files = await api.scanFiles(state.workspace.project.id);
     render();
   }));
-  document.querySelectorAll('[data-object-id]').forEach(el => el.addEventListener('click', () => loadSelected(el.dataset.objectId)));
-  document.getElementById('backBtn')?.addEventListener('click', () => { state.selectedObjectId=null; state.selectedObject=null; render(); });
+  document.querySelectorAll('[data-object-id]').forEach(el => el.addEventListener('click', event => {
+    event.stopPropagation();
+    const id = el.dataset.objectId;
+    if (id === state.selectedObjectId) { state.selectedObjectId = null; state.selectedObject = null; render(); return; }
+    // A relation can point at another type, which the current list would not show.
+    const type = el.dataset.objectType;
+    if (type && state.currentType !== 'overview' && state.currentType !== type) state.currentType = type;
+    loadSelected(id);
+  }));
   document.querySelectorAll('[data-status]').forEach(b => b.addEventListener('click', async (event) => {
     event.stopPropagation();
     const id = b.dataset.targetId || state.selectedObject?.id;

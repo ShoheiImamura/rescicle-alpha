@@ -146,3 +146,13 @@ button { cursor: pointer; }
 .map-edge { fill: none; stroke: #c9c8c0; stroke-width: 1.5; }
 .map-edge.proposed { stroke-dasharray: 4 3; }
 .map-legend { display: flex; gap: 14px; align-items: center; margin-top: 10px; font-size: 10px; color: #8c8a82; }
+
+/* Selecting an object opens it where it sits, so the collection around it stays
+   on screen; there is no detail page to go back from. */
+.card.open { border-color: #8d8c84; }
+.card-expand { margin-top: 13px; padding-top: 12px; border-top: 1px solid #efeee9; }
+.expand-head { font-size: 11px; font-weight: 700; color: #6b6a64; margin-bottom: 2px; }
+.card-expand .card-body { margin-bottom: 4px; }
+.card-expand .relation-row { padding: 9px 0; }
+.expand-empty { color: #89877f; font-size: 12px; padding: 8px 0; }
+.map-node.selected rect { stroke: #1d1d1b; stroke-width: 2; }
