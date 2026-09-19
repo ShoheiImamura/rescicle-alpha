@@ -114,3 +114,35 @@ button { cursor: pointer; }
 .status-bad { color: #9b3030; }
 .pill.active-backend { border-color: #b9c9b6; background: #f4f9f3; color: #3f6039; }
 .chat-head .backend-pill { margin-left: 8px; font-weight: 600; }
+
+/* The page CSP is `style-src 'self'` with no 'unsafe-inline', so a style="..."
+   attribute is dropped and its rule silently never applies. Spacing that would
+   naturally be written inline has to live here instead. */
+.onboarding-card .field { margin-top: 22px; }
+.onboarding-card .actions { justify-content: flex-end; margin-top: 22px; }
+.actions.object-actions { margin-top: 18px; }
+.relation-row .pill { margin-left: auto; }
+.page-note { margin-bottom: 16px; }
+.chat-hint { font-size: 12px; }
+.settings-note { font-size: 11px; margin-top: 10px; }
+.settings-section .actions { margin-top: 10px; }
+.settings-section .btn.settings-action { margin-top: 10px; }
+
+/* Confirm/Reject sit on the card itself: most objects arrive as agent proposals,
+   and triaging them one detail page at a time is the slowest path through the app. */
+.card-actions { flex: 0 0 auto; display: flex; gap: 6px; align-items: flex-start; }
+
+/* Overview map. The relation set is a layered DAG fixed by allowedRelation(), so
+   the layout is deterministic left to right and needs no force simulation. */
+.map-scroll { overflow-x: auto; padding-bottom: 6px; }
+.map { display: block; }
+.map-col-head { font-size: 10px; font-weight: 800; fill: #939188; letter-spacing: .09em; }
+.map-node { cursor: pointer; }
+.map-node rect { fill: #fff; stroke: #c5c4bc; }
+.map-node.proposed rect { stroke-dasharray: 4 3; }
+.map-node:hover rect { stroke: #8d8c84; }
+.map-type { font-size: 9px; font-weight: 800; fill: #8c8a82; letter-spacing: .09em; }
+.map-title { font-size: 12px; font-weight: 650; fill: #181816; }
+.map-edge { fill: none; stroke: #c9c8c0; stroke-width: 1.5; }
+.map-edge.proposed { stroke-dasharray: 4 3; }
+.map-legend { display: flex; gap: 14px; align-items: center; margin-top: 10px; font-size: 10px; color: #8c8a82; }
