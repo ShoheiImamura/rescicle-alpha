@@ -11,7 +11,6 @@
     "start": "electron-forge start",
     "package": "electron-forge package",
     "make": "electron-forge make",
-    "publish": "electron-forge publish",
     "test": "node scripts/smoke-test.cjs && node scripts/codex-protocol-test.cjs && node scripts/mcp-protocol-test.cjs && node scripts/claude-agent-test.cjs"
   },
   "dependencies": {
@@ -20,7 +19,6 @@
   "devDependencies": {
     "@electron-forge/cli": "^7.11.2",
     "@electron-forge/maker-squirrel": "^7.11.2",
-    "@electron-forge/publisher-github": "^7.11.2",
     "electron": "44.4.1"
   },
   "overrides": {

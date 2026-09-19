@@ -113,10 +113,10 @@ npm run make
 リリースは開発マシンからではなく、GitHub Actions（`.github/workflows/release.yml`）でビルド・公開します:
 
 1. バージョンを上げる: `npm version 0.0.4 --no-git-tag-version` してコミット。
-2. タグを打って push: `git tag v0.0.4 && git push origin main --tags`。
-3. ワークフローがテストを実行し、`windows-latest` でインストーラをビルドし、`v0.0.4` GitHub Releaseを作成して `rescicle-Setup.exe` を添付します。
+2. タグを打って push: `git tag v0.0.4 && git push origin main && git push origin v0.0.4`。`--tags` は不要なローカルタグまで送ってしまうので使いません。
+3. ワークフローがテストを実行し、`windows-latest` でインストーラをビルドし、`gh` で `v0.0.4` GitHub Releaseを作成して `rescicle-Setup.exe` を添付します。最後にアセットが実際に乗ったか検証するので、添付に失敗すればジョブが赤くなります。
 
-タグは `v<package.jsonのversion>` と一致している必要があります。publisherはパッケージのバージョンでリリース名を決めます。インストーラのファイル名にはバージョンが入らないので、冒頭のダウンロードリンクは常に最新リリースを指し、バージョンを上げても更新は不要です。
+タグは `v<package.jsonのversion>` と一致している必要があります（ワークフローの guard ステップが検査します）。インストーラのファイル名にはバージョンが入らないので、冒頭のダウンロードリンクは常に最新リリースを指し、バージョンを上げても更新は不要です。
 
 AIランタイムは同梱していません。rescicleはユーザーがすでにインストール・サインイン済みの `claude` CLIを動かすため、インストーラにはアプリ本体とElectronしか入りません。
 
