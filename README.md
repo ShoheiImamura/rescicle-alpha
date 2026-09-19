@@ -2,6 +2,16 @@
 
 Local-first desktop MVP for the first research user.
 
+## Download
+
+Windows (x64) installer:
+
+**[Download rescicle Setup (latest release)](https://github.com/ShoheiImamura/rescicle-alpha/releases/latest/download/rescicle-0.0.2.Setup.exe)**
+
+All versions are on the [Releases page](https://github.com/ShoheiImamura/rescicle-alpha/releases).
+
+Run the downloaded `rescicle-0.0.2 Setup.exe`. The installer is not code-signed, so Windows SmartScreen may show a warning; choose **詳細情報** → **実行** to continue. rescicle installs per user (no administrator rights needed) and launches automatically when installation finishes.
+
 ## User experience
 
 1. Install and launch rescicle.
