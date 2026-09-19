@@ -1,0 +1,50 @@
+name: release
+
+# Builds the Windows installer and publishes it to the GitHub Release for the
+# pushed tag. Tag v0.0.4 must correspond to "version": "0.0.4" in package.json:
+# publisher-github names the release after the package version, so a mismatch
+# creates a second release. The guard step below fails fast in that case.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Check tag matches package.json version
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: |
+          pkg="v$(node -p "require('./package.json').version")"
+          tag="${GITHUB_REF_NAME}"
+          if [ "$pkg" != "$tag" ]; then
+            echo "tag $tag does not match package.json version $pkg" >&2
+            exit 1
+          fi
+
+      - run: npm ci
+      - run: npm test
+
+      - name: Build and publish installer
+        run: npm run publish
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Keep the installer as a workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rescicle-windows-x64
+          path: out/make/squirrel.windows/x64/*Setup.exe
+          if-no-files-found: error
