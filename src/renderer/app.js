@@ -33,6 +33,7 @@ let state = {
   loading: false,
   modal: null,
   renaming: false,
+  renameDraft: null,
   renameError: null,
   error: null
 };
@@ -71,7 +72,7 @@ function onboardingHtml() {
 function workspaceHtml() {
   const w = state.workspace;
   return `<div class="shell ${state.loading ? 'loading':''}">
-    <header class="topbar"><div class="brand">rescicle</div><div class="project-title">${esc(w.project.name)}</div><div class="root-hint">${esc(w.project.root_path)}</div><button class="btn small" id="settingsBtn">AI接続</button></header>
+    <header class="topbar"><div class="brand">rescicle</div>${projectTitleHtml()}<div class="root-hint">${esc(w.project.root_path)}</div><button class="btn small" id="settingsBtn">AI接続</button></header>
     <div class="layout">
       <aside class="sidebar">${sidebarHtml()}</aside>
       <main class="content"><div class="content-inner">${contentHtml()}</div></main>
@@ -96,9 +97,14 @@ function contentHtml() {
 function projectTitleHtml() {
   const name = state.workspace.project.name;
   if (!state.renaming) {
-    return `<div class="page-title"><h1>${esc(name)}</h1><button class="btn small" id="renameProject">名前を変更</button></div>`;
+    return `<button class="project-title" id="renameProject" title="クリックして研究名を変更">${esc(name)}</button>`;
   }
-  return `<div class="page-title"><input id="projectNameInput" class="input project-name-input" value="${esc(name)}"><button class="btn primary small" id="saveProjectName">保存</button><button class="btn small" id="cancelProjectName">キャンセル</button></div>${state.renameError ? `<div class="error">${esc(state.renameError)}</div>` : ''}`;
+  return `<div class="project-title renaming">
+    <input id="projectNameInput" class="input project-name-input" value="${esc(state.renameDraft ?? name)}">
+    <button class="btn primary small" id="saveProjectName">保存</button>
+    <button class="btn small" id="cancelProjectName">キャンセル</button>
+    ${state.renameError ? `<span class="error rename-error">${esc(state.renameError)}</span>` : ''}
+  </div>`;
 }
 
 function overviewHtml() {
@@ -106,7 +112,7 @@ function overviewHtml() {
   // Notes sit outside the chain that allowedRelation() permits, so they are never
   // drawn on the map. List them under it rather than letting them disappear.
   const offMap = objects.filter(o => o.status !== 'rejected' && !CHAIN.includes(o.type));
-  return `${projectTitleHtml()}
+  return `<div class="page-title"><h1>${esc(state.workspace.project.name)}</h1></div>
     <div class="muted page-note">問い → 仮説 → 予測 → 測定 → データ のつながりです。右側のAIと話すと、ここが育っていきます。</div>
     ${mapHtml()}
     ${state.selectedObject && CHAIN.includes(state.selectedObject.type) ? cardHtml(state.selectedObject) : ''}
@@ -291,7 +297,7 @@ function bind() {
     else render();
   }));
   document.getElementById('renameProject')?.addEventListener('click', () => {
-    state.renaming = true; state.renameError = null; render();
+    state.renaming = true; state.renameDraft = state.workspace.project.name; state.renameError = null; render();
     const input = document.getElementById('projectNameInput');
     input?.focus(); input?.select();
   });
@@ -315,18 +321,19 @@ function bind() {
 }
 
 function cancelRename() {
-  state.renaming = false; state.renameError = null; render();
+  state.renaming = false; state.renameDraft = null; state.renameError = null; render();
 }
 
 async function saveProjectName() {
-  const name = document.getElementById('projectNameInput')?.value.trim();
+  state.renameDraft = document.getElementById('projectNameInput')?.value ?? '';
+  const name = state.renameDraft.trim();
   if (!name) { state.renameError = '研究名を入力してください。'; render(); return; }
   try {
     state.workspace = await api.renameProject(state.workspace.project.id, name);
     // bootstrap.projects backs the project list, so keep it in step.
     const listed = state.bootstrap?.projects?.find(x => x.id === state.workspace.project.id);
     if (listed) listed.name = state.workspace.project.name;
-    state.renaming = false; state.renameError = null;
+    state.renaming = false; state.renameDraft = null; state.renameError = null;
   } catch (e) { state.renameError = e.message || String(e); }
   render();
 }
