@@ -3,42 +3,30 @@ const fs = require('node:fs');
 const { app, BrowserWindow, ipcMain, dialog, shell, clipboard } = require('electron');
 const { RescicleDB } = require('./db.cjs');
 const { scanFiles, resolveProjectFile } = require('./files.cjs');
-const { CodexAppServer } = require('./codex-client.cjs');
-const { CodexAgent } = require('./agent.cjs');
 const { ClaudeAgent } = require('./claude-agent.cjs');
 const { runStdioMcp } = require('./mcp-server.cjs');
 
-const BACKENDS = ['claude', 'codex'];
-const DEFAULT_BACKEND = 'claude';
+// rescicle talks to Claude Code only. The ChatGPT/Codex client is still in the
+// tree (src/codex-client.cjs) but is neither wired up nor bundled.
+const AGENT_BACKEND = 'claude';
 
 let mainWindow;
 let db;
-let codex;
-let agent;
 let claudeAgent;
 let currentProjectId = null;
-let projectThreads = {};
 let projectClaudeSessions = {};
-let agentBackend = DEFAULT_BACKEND;
 
 function settingsPath() { return path.join(app.getPath('userData'), 'settings.json'); }
 function loadSettings() {
   try {
     const x = JSON.parse(fs.readFileSync(settingsPath(), 'utf8'));
     currentProjectId = x.currentProjectId || null;
-    projectThreads = x.projectThreads || {};
     projectClaudeSessions = x.projectClaudeSessions || {};
-    agentBackend = BACKENDS.includes(x.agentBackend) ? x.agentBackend : DEFAULT_BACKEND;
   } catch {}
 }
 function saveSettings() {
   fs.mkdirSync(path.dirname(settingsPath()), { recursive: true });
-  fs.writeFileSync(settingsPath(), JSON.stringify({ currentProjectId, projectThreads, projectClaudeSessions, agentBackend }, null, 2));
-}
-function setThreadId(projectId, threadId) {
-  if (threadId) projectThreads[projectId] = threadId;
-  else delete projectThreads[projectId];
-  saveSettings();
+  fs.writeFileSync(settingsPath(), JSON.stringify({ currentProjectId, projectClaudeSessions }, null, 2));
 }
 function setClaudeSessionId(projectId, sessionId) {
   if (sessionId) projectClaudeSessions[projectId] = sessionId;
@@ -72,28 +60,13 @@ function createWindow() {
   mainWindow.webContents.on('will-navigate', event => event.preventDefault());
 }
 
-async function codexStatus() {
-  try {
-    const result = await codex.account();
-    return { available: true, account: result.account || null, requiresOpenaiAuth: Boolean(result.requiresOpenaiAuth), provider: 'codex' };
-  } catch (error) {
-    return { available: false, account: null, provider: 'codex', error: error.message };
-  }
-}
-
 async function claudeStatus() {
   try { return await claudeAgent.status(); }
   catch (error) { return { available: false, provider: 'claude', error: error.message, bin: null, version: null }; }
 }
 
 async function agentStatus() {
-  const [claude, codexInfo] = await Promise.all([claudeStatus(), codexStatus()]);
-  // The flat codex fields stay for backwards compatibility with existing callers.
-  return { ...codexInfo, backend: agentBackend, claude, codex: codexInfo };
-}
-
-function activeAgent() {
-  return agentBackend === 'codex' ? agent : claudeAgent;
+  return { backend: AGENT_BACKEND, claude: await claudeStatus() };
 }
 
 function claudeSetupCommand() {
@@ -136,12 +109,6 @@ function installIpc() {
   });
 
   on('agent:status', agentStatus);
-  on('agent:login', async () => {
-    const result = await codex.loginChatGPT();
-    if (result.authUrl) await shell.openExternal(result.authUrl);
-    return { started: true, loginId: result.loginId || null };
-  });
-  on('agent:logout', async () => { await codex.logout(); return agentStatus(); });
   on('agent:refresh', agentStatus);
   on('agent:send', async ({ projectId, text, selectedObjectId }) => {
     if (!String(text || '').trim()) return null;
@@ -149,16 +116,9 @@ function installIpc() {
     if (!project) throw new Error('project not found');
     db.saveMessage(projectId, 'user', String(text).trim());
     const files = scanFiles(project.root_path, 120);
-    const result = await activeAgent().chat({ db, projectId, text: String(text).trim(), selectedObjectId, fileIndex: files });
+    const result = await claudeAgent.chat({ db, projectId, text: String(text).trim(), selectedObjectId, fileIndex: files });
     db.saveMessage(projectId, 'assistant', result.reply);
     return { ...result, workspace: db.workspace(projectId) };
-  });
-
-  on('agent:set-backend', async backend => {
-    if (!BACKENDS.includes(backend)) throw new Error(`unknown agent backend: ${backend}`);
-    agentBackend = backend;
-    saveSettings();
-    return agentStatus();
   });
 
   on('claude:setup-info', async () => ({ command: claudeSetupCommand(), executable: process.execPath }));
@@ -186,8 +146,6 @@ if (require('electron-squirrel-startup')) {
   app.whenReady().then(async () => {
     await initCore();
     const workDir = path.join(app.getPath('userData'), 'agent-workspace');
-    codex = new CodexAppServer({ workDir, clientVersion: app.getVersion() });
-    agent = new CodexAgent({ codex, workDir, getThreadId: id => projectThreads[id] || null, setThreadId });
     claudeAgent = new ClaudeAgent({ workDir, getSessionId: id => projectClaudeSessions[id] || null, setSessionId: setClaudeSessionId });
     installIpc();
     createWindow();
@@ -197,4 +155,4 @@ if (require('electron-squirrel-startup')) {
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 }
 
-app.on('before-quit', () => { try { db?.close(); } catch {} try { codex?.stop(); } catch {} });
+app.on('before-quit', () => { try { db?.close(); } catch {} });

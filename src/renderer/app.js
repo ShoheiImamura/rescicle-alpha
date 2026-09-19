@@ -122,57 +122,22 @@ function filesHtml() {
 function chatHtml() {
   const selected = state.selectedObject ? state.selectedObject.title : null;
   const messages = state.workspace.messages || [];
-  const backendLabel = state.bootstrap?.agent?.backend === 'codex' ? 'ChatGPT / Codex' : 'Claude Code';
-  return `<div class="chat-head">Conversation<span class="pill backend-pill" id="backendPill" title="AI接続で切り替えます">${esc(backendLabel)}</span><div class="chat-context">${selected ? `Context: ${esc(selected)}` : 'Project context'}</div></div>
+  return `<div class="chat-head">Conversation<span class="pill backend-pill" id="backendPill">Claude Code</span><div class="chat-context">${selected ? `Context: ${esc(selected)}` : 'Project context'}</div></div>
     <div class="messages" id="messages">${messages.length ? messages.map(m => `<div class="message ${m.role}">${esc(m.content)}</div>`).join('') : '<div class="muted" style="font-size:12px">「何を調べている研究か」から普通に話してください。</div>'}</div>
     <div class="chat-compose"><textarea id="chatInput" class="input" placeholder="研究について話す…"></textarea>${state.error ? `<div class="error">${esc(state.error)}</div>`:''}<div class="compose-actions"><div class="privacy">Raw file本文はAIへ自動送信しません</div><button class="btn primary" id="sendBtn">送信</button></div></div>`;
 }
 
-function backendPickerHtml(backend, active) {
-  return active
-    ? '<span class="pill active-backend">このチャットで使用中</span>'
-    : `<button class="btn small" data-backend="${backend}">このチャットで使う</button>`;
-}
-
 function claudeSectionHtml(agent) {
   const claude = agent.claude || {};
-  const active = (agent.backend || 'claude') === 'claude';
   const body = claude.available
     ? `<div class="connection-ok"><strong>利用可能</strong><div class="muted">${esc(claude.version || 'claude')}</div></div>`
     : `<div class="error">Claude Codeが見つかりません: ${esc(claude.error || 'unknown error')}</div>
        <div class="muted" style="font-size:11px;margin-top:8px">claudeコマンドをインストールして、rescicleを再起動してください。</div>`;
-  return `<div class="settings-section"><h3>Claude Code <span class="pill">メイン</span></h3>${body}
-    <div class="actions" style="margin-top:10px">${backendPickerHtml('claude', active)}<button class="btn small" id="refreshAgent">状態を更新</button></div>
+  return `<div class="settings-section"><h3>Claude Code</h3>${body}
+    <div class="actions" style="margin-top:10px"><button class="btn small" id="refreshAgent">状態を更新</button></div>
     <div class="muted" style="font-size:11px;margin-top:12px">画面のチャットは、すでにログイン済みのClaude Codeをローカルで実行して応答します。APIキーは不要です。研究フォルダをAIの作業ディレクトリにはせず、Conversation・Research Objectの要約・ファイル名/サイズ/更新日時だけを渡します。Raw file contentは送信しません。</div>
     <div class="muted" style="font-size:11px;margin-top:10px">Claude Code側をUIにして操作したい場合は、rescicleをMCP serverとして追加できます。</div>
     <button class="btn small" id="copyClaudeSetup" style="margin-top:10px">MCP設定コマンドをコピー</button>
-  </div>`;
-}
-
-function codexSectionHtml(agent) {
-  const codex = agent.codex || agent;
-  const account = codex.account || null;
-  const active = agent.backend === 'codex';
-  const accountLabel = account?.type === 'chatgpt'
-    ? `ChatGPT ${account.planType || ''}${account.email ? ` · ${account.email}` : ''}`
-    : account ? account.type : null;
-  // Secondary path, but sign-in and sign-out stay one click away rather than
-  // hidden behind a disclosure.
-  let status;
-  let actions;
-  if (!codex.available) {
-    status = `<span class="status-bad">起動できません: ${esc(codex.error || 'unknown error')}</span>`;
-    actions = '';
-  } else if (account) {
-    status = `接続済み · ${esc(accountLabel)}`;
-    actions = `${backendPickerHtml('codex', active)}<button class="btn small" id="logoutAgent">ログアウト</button>`;
-  } else {
-    status = '未サインイン · APIキーは不要です';
-    actions = '<button class="btn small" id="loginChatGPT">ChatGPTでサインイン</button>';
-  }
-  return `<div class="settings-section secondary">
-    <div class="secondary-head"><h3>ChatGPT / Codex<span class="side-tag">サブ</span></h3><div class="actions">${actions}</div></div>
-    <div class="muted secondary-status">${status}</div>
   </div>`;
 }
 
@@ -180,7 +145,6 @@ function settingsModalHtml() {
   const agent = state.bootstrap?.agent || {};
   return `<div class="modal-wrap"><div class="modal"><h2>AI接続</h2>
     ${claudeSectionHtml(agent)}
-    ${codexSectionHtml(agent)}
     ${state.error ? `<div class="error">${esc(state.error)}</div>`:''}
     <div class="modal-actions"><button class="btn" id="closeModal">閉じる</button></div></div></div>`;
 }
@@ -216,11 +180,8 @@ function bind() {
   document.getElementById('chatInput')?.addEventListener('keydown', e => { if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') sendMessage(); });
   document.getElementById('settingsBtn')?.addEventListener('click', () => { state.modal='settings'; state.error=null; render(); });
   document.getElementById('closeModal')?.addEventListener('click', () => { state.modal=null; state.error=null; render(); });
-  document.getElementById('loginChatGPT')?.addEventListener('click', loginChatGPT);
   document.getElementById('refreshAgent')?.addEventListener('click', refreshAgent);
-  document.getElementById('logoutAgent')?.addEventListener('click', logoutAgent);
   document.getElementById('copyClaudeSetup')?.addEventListener('click', copyClaudeSetup);
-  document.querySelectorAll('[data-backend]').forEach(b => b.addEventListener('click', () => setBackend(b.dataset.backend)));
   const messages = document.getElementById('messages'); if (messages) messages.scrollTop = messages.scrollHeight;
 }
 
@@ -244,20 +205,8 @@ async function sendMessage() {
   state.loading = false; render();
 }
 
-async function setBackend(backend) {
-  try { state.bootstrap.agent = await api.agentSetBackend(backend); state.error = null; render(); }
-  catch (e) { state.error = e.message || String(e); render(); }
-}
 async function refreshAgent() {
   try { state.bootstrap.agent = await api.agentRefresh(); state.error = null; render(); }
-  catch (e) { state.error = e.message || String(e); render(); }
-}
-async function loginChatGPT() {
-  try { await api.agentLogin(); state.error = null; render(); }
-  catch (e) { state.error = e.message || String(e); render(); }
-}
-async function logoutAgent() {
-  try { state.bootstrap.agent = await api.agentLogout(); state.error = null; render(); }
   catch (e) { state.error = e.message || String(e); render(); }
 }
 async function copyClaudeSetup() {

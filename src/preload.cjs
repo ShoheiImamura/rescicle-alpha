@@ -13,10 +13,7 @@ contextBridge.exposeInMainWorld('rescicle', {
   messages: projectId => ipcRenderer.invoke('messages:list', projectId),
   sendMessage: payload => ipcRenderer.invoke('agent:send', payload),
   agentStatus: () => ipcRenderer.invoke('agent:status'),
-  agentLogin: () => ipcRenderer.invoke('agent:login'),
-  agentLogout: () => ipcRenderer.invoke('agent:logout'),
   agentRefresh: () => ipcRenderer.invoke('agent:refresh'),
-  agentSetBackend: backend => ipcRenderer.invoke('agent:set-backend', backend),
   claudeSetupInfo: () => ipcRenderer.invoke('claude:setup-info'),
   copyClaudeSetup: () => ipcRenderer.invoke('claude:copy-setup')
 });
