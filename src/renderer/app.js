@@ -115,7 +115,7 @@ function overviewHtml() {
   return `<div class="page-title"><h1>${esc(state.workspace.project.name)}</h1></div>
     <div class="muted page-note">問い → 仮説 → 予測 → 測定 → データ のつながりです。右側のAIと話すと、ここが育っていきます。</div>
     ${mapHtml()}
-    ${state.selectedObject && CHAIN.includes(state.selectedObject.type) ? cardHtml(state.selectedObject) : ''}
+    ${state.selectedObject && CHAIN.includes(state.selectedObject.type) ? cardHtml(state.selectedObject, { pinned: true }) : ''}
     ${offMap.length ? `<section class="section"><div class="section-head"><h2>マップに載らないもの</h2></div><div class="object-grid">${offMap.map(cardHtml).join('')}</div></section>` : ''}`;
 }
 
@@ -203,11 +203,16 @@ function statusButtonsHtml(id) {
   return `<button class="btn primary small" data-status="confirmed" data-target-id="${id}">確定</button><button class="btn danger small" data-status="rejected" data-target-id="${id}">却下</button>`;
 }
 
-function cardHtml(o) {
+function cardHtml(o, { pinned = false } = {}) {
   const open = state.selectedObjectId === o.id;
   // getObject() carries the relations, and it lands one render later than the click.
   const full = open && state.selectedObject?.id === o.id ? state.selectedObject : null;
-  return `<div class="card clickable ${open ? 'open' : ''}" data-object-id="${o.id}" data-object-type="${esc(o.type)}"><div class="card-row"><div class="card-main"><div class="type">${esc(TYPE_LABEL[o.type] || o.type)}</div><div class="card-title">${esc(o.title)}</div>${o.body ? `<div class="card-body">${esc(o.body)}</div>`:''}<div class="pills"><span class="pill ${o.status}">${esc(STATUS_LABEL[o.status] || o.status)}</span><span class="pill ${o.origin==='agent'?'agent':''}">${esc(ORIGIN_LABEL[o.origin] || o.origin)}</span></div></div>${o.status==='proposed' ? `<div class="card-actions">${statusButtonsHtml(o.id)}</div>` : ''}</div>${full ? expansionHtml(full) : ''}</div>`;
+  // Only the summary row toggles. Clicking inside an open card -- or anywhere on the
+  // panel the map drives, which `pinned` marks -- must not dismiss what you opened.
+  const row = pinned
+    ? '<div class="card-row">'
+    : `<div class="card-row clickable" data-object-id="${o.id}" data-object-type="${esc(o.type)}">`;
+  return `<div class="card ${open ? 'open' : ''}">${row}<div class="card-main"><div class="type">${esc(TYPE_LABEL[o.type] || o.type)}</div><div class="card-title">${esc(o.title)}</div>${o.body ? `<div class="card-body">${esc(o.body)}</div>`:''}<div class="pills"><span class="pill ${o.status}">${esc(STATUS_LABEL[o.status] || o.status)}</span><span class="pill ${o.origin==='agent'?'agent':''}">${esc(ORIGIN_LABEL[o.origin] || o.origin)}</span></div></div>${o.status==='proposed' ? `<div class="card-actions">${statusButtonsHtml(o.id)}</div>` : ''}</div>${full ? expansionHtml(full) : ''}</div>`;
 }
 
 // The open half of a card: everything the old detail page added on top of what

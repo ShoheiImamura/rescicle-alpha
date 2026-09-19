@@ -29,11 +29,13 @@ button { cursor: pointer; }
    chat each own their scroll range, so scrolling one does not move the others. */
 .shell { height: 100%; display: grid; grid-template-rows: 54px minmax(0, 1fr); overflow: hidden; }
 .topbar { background: rgba(255,255,255,.96); border-bottom: 1px solid #deddd7; display:flex; align-items:center; padding:0 18px; gap:16px; }
-.project-title { font-weight: 700; font-size: 14px; flex: 1; min-width: 0; border: 0; background: transparent; color: inherit; font-family: inherit; text-align: left; padding: 2px 6px; margin-left: -6px; border-radius: 7px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Sized to the text, not to the bar: flex:1 made the hover and click target
+   stretch across the whole top bar. .root-hint takes the free space instead. */
+.project-title { font-weight: 700; font-size: 14px; max-width: 380px; min-width: 0; border: 0; background: transparent; color: inherit; font-family: inherit; text-align: left; padding: 2px 6px; margin-left: -6px; border-radius: 7px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 button.project-title:hover { background: #eeede9; }
 .project-title.renaming { display: flex; align-items: center; gap: 8px; overflow: visible; }
 .rename-error { margin-top: 0; white-space: nowrap; }
-.root-hint { max-width: 420px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:#88877f; font-size:11px; }
+.root-hint { margin-left: auto; max-width: 420px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:#88877f; font-size:11px; }
 /* grid-template-rows caps the implicit row: without it the row is auto-sized to the
    tallest column, every pane grows past the viewport and the window scrolls instead. */
 .layout { min-height: 0; display:grid; grid-template-columns: 210px minmax(420px,1fr) 390px; grid-template-rows: minmax(0, 1fr); overflow: hidden; }
@@ -49,7 +51,8 @@ button.project-title:hover { background: #eeede9; }
 .page-title h1 { margin:0; font-size:25px; letter-spacing:-.03em; }
 .object-grid { display:grid; gap:10px; }
 .card { background:#fff; border:1px solid #deddd7; border-radius:12px; padding:14px; }
-.card.clickable:hover { border-color:#b7b6ae; }
+.card-row.clickable { cursor:pointer; }
+.card:has(> .card-row.clickable:hover) { border-color:#b7b6ae; }
 .card-row { display:flex; gap:10px; align-items:flex-start; }
 .card-main { flex:1; min-width:0; }
 .type { font-size:10px; text-transform:uppercase; letter-spacing:.09em; font-weight:800; color:#8c8a82; }
