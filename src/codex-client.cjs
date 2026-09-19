@@ -4,19 +4,49 @@ const readline = require('node:readline');
 const { spawn } = require('node:child_process');
 const { EventEmitter } = require('node:events');
 
-function findBundledCodexEntry() {
-  if (process.env.RESCICLE_CODEX_ENTRY) return process.env.RESCICLE_CODEX_ENTRY;
-  const pkg = require.resolve('@openai/codex/package.json');
-  return path.join(path.dirname(pkg), 'bin', 'codex.js');
+const CODEX_TARGET_TRIPLE = {
+  'win32-x64': 'x86_64-pc-windows-msvc',
+  'win32-arm64': 'aarch64-pc-windows-msvc',
+  'darwin-x64': 'x86_64-apple-darwin',
+  'darwin-arm64': 'aarch64-apple-darwin',
+  'linux-x64': 'x86_64-unknown-linux-musl',
+  'linux-arm64': 'aarch64-unknown-linux-musl'
+};
+
+function codexPackageRoot() {
+  return path.dirname(require.resolve('@openai/codex/package.json'));
+}
+
+// @openai/codex ships a bin/codex.js launcher whose only job is to spawn this
+// same native binary, but it spawns without windowsHide, so on Windows the
+// binary gets its own terminal window and nothing upstream can suppress it.
+// Running the binary ourselves keeps that window away and drops a Node process
+// from the chain.
+function findBundledCodexBinary() {
+  if (process.env.RESCICLE_CODEX_BIN) return process.env.RESCICLE_CODEX_BIN;
+  const key = `${process.platform}-${process.arch}`;
+  const triple = CODEX_TARGET_TRIPLE[key];
+  if (!triple) throw new Error(`Codex does not ship a binary for ${key}.`);
+  const exe = process.platform === 'win32' ? 'codex.exe' : 'codex';
+  // The platform package is the normal location; the vendor directory inside
+  // @openai/codex is the same fallback the upstream launcher uses.
+  const roots = [];
+  try { roots.push(path.dirname(require.resolve(`@openai/codex-${key}/package.json`))); } catch { /* not installed */ }
+  try { roots.push(codexPackageRoot()); } catch { /* not installed */ }
+  for (const root of roots) {
+    const candidate = path.join(root, 'vendor', triple, 'bin', exe);
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  throw new Error(`Bundled Codex binary for ${key} not found.`);
 }
 
 class CodexAppServer extends EventEmitter {
-  constructor({ workDir, clientVersion = '0.0.2', spawnImpl = spawn, codexEntry = null } = {}) {
+  constructor({ workDir, clientVersion = '0.0.2', spawnImpl = spawn, codexBin = null } = {}) {
     super();
     this.workDir = workDir;
     this.clientVersion = clientVersion;
     this.spawnImpl = spawnImpl;
-    this.codexEntry = codexEntry;
+    this.codexBin = codexBin;
     this.proc = null;
     this.nextId = 1;
     this.pending = new Map();
@@ -27,15 +57,17 @@ class CodexAppServer extends EventEmitter {
   async start() {
     if (this.started && this.proc && !this.proc.killed) return;
     fs.mkdirSync(this.workDir, { recursive: true });
-    const codexEntry = this.codexEntry || findBundledCodexEntry();
+    const codexBin = this.codexBin || findBundledCodexBinary();
     const env = { ...process.env };
-    // Electron can act as Node for the bundled Codex JS launcher.
-    if (process.versions?.electron) env.ELECTRON_RUN_AS_NODE = '1';
-    this.proc = this.spawnImpl(process.execPath, [codexEntry, 'app-server'], {
+    // The upstream launcher sets these before handing over to the binary, so
+    // Codex keeps seeing the install the same way now that we skip it.
+    try { env.CODEX_MANAGED_PACKAGE_ROOT = codexPackageRoot(); } catch { /* leave unset */ }
+    env.CODEX_MANAGED_BY_NPM = '1';
+    this.proc = this.spawnImpl(codexBin, ['app-server'], {
       cwd: this.workDir,
       env,
       stdio: ['pipe', 'pipe', 'pipe'],
-      // ELECTRON_RUN_AS_NODE pops up a console window on Windows unless it is hidden.
+      // Codex is a console program: without this it opens a terminal window.
       windowsHide: true
     });
 
@@ -210,4 +242,4 @@ class CodexAppServer extends EventEmitter {
   }
 }
 
-module.exports = { CodexAppServer, findBundledCodexEntry };
+module.exports = { CodexAppServer, findBundledCodexBinary };

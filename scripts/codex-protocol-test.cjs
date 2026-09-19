@@ -42,7 +42,7 @@ function fakeSpawn() {
 }
 
 (async () => {
-  const codex = new CodexAppServer({ workDir: tmp, codexEntry: '/fake/codex.js', spawnImpl: fakeSpawn });
+  const codex = new CodexAppServer({ workDir: tmp, codexBin: '/fake/codex', spawnImpl: fakeSpawn });
   const account = await codex.account();
   assert.equal(account.account.planType, 'plus');
   const thread = await codex.startThread({ cwd: tmp });
