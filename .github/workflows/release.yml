@@ -33,14 +33,42 @@ jobs:
             exit 1
           fi
 
+      # package.json, Cargo.toml and tauri.conf.json all carry the version, and
+      # only the first one is checked above. Catch a half-done bump here.
+      - name: Check the three version numbers agree
+        shell: bash
+        run: |
+          pkg=$(node -p "require('./package.json').version")
+          conf=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          cargo=$(grep -m1 '^version = ' src-tauri/Cargo.toml | sed 's/.*"\(.*\)".*/\1/')
+          echo "package.json=$pkg tauri.conf.json=$conf Cargo.toml=$cargo"
+          if [ "$pkg" != "$conf" ] || [ "$pkg" != "$cargo" ]; then
+            echo "version mismatch between package.json, tauri.conf.json and Cargo.toml" >&2
+            exit 1
+          fi
+
       - run: npm ci
       - run: npm test
-      - run: npm run make
+      - run: npm run build
 
-      # Uploads with `gh` rather than electron-forge's publisher-github: the
-      # publisher exits 0 without creating a release when it ends up with no
-      # artifacts, so a green step did not mean the installer was published.
-      # The closing `gh release view` fails the job if the asset is missing.
+      # Tauri names the bundle after the version, but the README link is
+      # deliberately version-free so it keeps working across releases. Take the
+      # exact name the version implies rather than globbing: a glob would quietly
+      # pick up a stale bundle from an earlier version and ship it.
+      - name: Collect the installer under its stable name
+        shell: bash
+        run: |
+          set -euo pipefail
+          ver=$(node -p "require('./package.json').version")
+          src="src-tauri/target/release/bundle/nsis/rescicle_${ver}_x64-setup.exe"
+          test -f "$src"
+          cp "$src" rescicle-Setup.exe
+          ls -la rescicle-Setup.exe
+
+      # Uploads with `gh` rather than a bundler's own publisher: publishers tend
+      # to exit 0 without creating a release when they end up with no artifacts,
+      # so a green step did not mean the installer was published. The closing
+      # `gh release view` fails the job if the asset is missing.
       - name: Publish the installer to the release
         if: startsWith(github.ref, 'refs/tags/')
         shell: bash
@@ -48,7 +76,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          exe="out/make/squirrel.windows/x64/rescicle-Setup.exe"
+          exe="rescicle-Setup.exe"
           test -f "$exe"
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
             gh release upload "$GITHUB_REF_NAME" "$exe" --clobber
@@ -82,5 +110,5 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: rescicle-windows-x64
-          path: out/make/squirrel.windows/x64/rescicle-Setup.exe
+          path: rescicle-Setup.exe
           if-no-files-found: error

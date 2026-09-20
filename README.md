@@ -1,4 +1,4 @@
-# rescicle — first user build v0.0.3
+# rescicle — first user build v0.0.4
 
 最初の研究ユーザー向けの、ローカル完結型デスクトップMVPです。
 
@@ -10,7 +10,9 @@ Windows (x64) インストーラ:
 
 過去のバージョンは [Releasesページ](https://github.com/ShoheiImamura/rescicle-alpha/releases) にあります。
 
-ダウンロードした `rescicle-Setup.exe` を実行してください。インストーラにはコード署名がないため、Windows SmartScreenの警告が出ることがあります。その場合は **詳細情報** → **実行** を選んでください。rescicleはユーザー単位でインストールされるので管理者権限は不要で、インストール完了後に自動で起動します。
+ダウンロードした `rescicle-Setup.exe`（約3MB）を実行してください。インストーラにはコード署名がないため、Windows SmartScreenの警告が出ることがあります。その場合は **詳細情報** → **実行** を選んでください。rescicleはユーザー単位でインストールされるので管理者権限は不要で、完了画面からそのまま起動できます。
+
+画面の描画にはWindows同梱のWebView2ランタイムを使います。Windows 11には標準で入っています。入っていない環境では、インストーラが自動で取得します。
 
 ### アンインストール
 
@@ -92,33 +94,44 @@ Relation:
 
 各Research Object / Relationは `origin` と `status`（`proposed` / `confirmed` / `rejected`）を持ちます。
 
+## 構成
+
+- `src/renderer/` — 画面。ビルド工程のない素のHTML / CSS / JavaScriptです。`bridge.js` が `window.rescicle` を組み立てるので、`app.js` は自分がどのランタイムの上にいるかを知りません。
+- `src-tauri/` — Rust側。ドメイン検証、SQLite、`claude` CLIの駆動、stdio MCPサーバー。
+
 ## 開発
 
-Node.js 24を推奨します。
+Node.js 24 と Rust（stable / MSVCツールチェーン）が必要です。Windowsでは Visual Studio Build Tools の C++ ワークロードも入れてください。
 
 ```bash
 npm install
-npm test
-npm start
+npm test      # cargo test
+npm run dev   # 開発用に起動
 ```
 
-Windowsインストーラのローカルビルド（`out/make/squirrel.windows/x64/` に出力されます）:
+Windowsインストーラのローカルビルド（`src-tauri/target/release/bundle/nsis/` に出力されます）:
 
 ```bash
-npm run make
+npm run build
+```
+
+実物の `claude` CLIを起動するテストは、CIに `claude` が無いため既定で除外してあります。手元で確認する場合:
+
+```bash
+cargo test --manifest-path src-tauri/Cargo.toml --test claude_cli -- --ignored --nocapture
 ```
 
 ### リリース
 
 リリースは開発マシンからではなく、GitHub Actions（`.github/workflows/release.yml`）でビルド・公開します:
 
-1. バージョンを上げる: `npm version 0.0.4 --no-git-tag-version` してコミット。
+1. バージョンを上げる: `package.json` / `src-tauri/Cargo.toml` / `src-tauri/tauri.conf.json` の3箇所を同じ番号に揃えてコミット。ワークフローが3つの一致を検査するので、上げ忘れはそこで落ちます。
 2. タグを打って push: `git tag v0.0.4 && git push origin main && git push origin v0.0.4`。`--tags` は不要なローカルタグまで送ってしまうので使いません。
 3. ワークフローがテストを実行し、`windows-latest` でインストーラをビルドし、`gh` で `v0.0.4` GitHub Releaseを作成して `rescicle-Setup.exe` を添付します。最後にアセットが実際に乗ったか検証するので、添付に失敗すればジョブが赤くなります。
 
-タグは `v<package.jsonのversion>` と一致している必要があります（ワークフローの guard ステップが検査します）。インストーラのファイル名にはバージョンが入らないので、冒頭のダウンロードリンクは常に最新リリースを指し、バージョンを上げても更新は不要です。
+タグは `v<package.jsonのversion>` と一致している必要があります（ワークフローの guard ステップが検査します）。Tauriが出力するファイル名にはバージョンが入りますが、ワークフローが `rescicle-Setup.exe` にリネームしてから添付するため、冒頭のダウンロードリンクはバージョンを上げても更新不要です。
 
-AIランタイムは同梱していません。rescicleはユーザーがすでにインストール・サインイン済みの `claude` CLIを動かすため、インストーラにはアプリ本体とElectronしか入りません。
+AIランタイムは同梱していません。rescicleはユーザーがすでにインストール・サインイン済みの `claude` CLIを動かします。画面の描画もOS同梱のWebView2に任せるので、インストーラに入るのはアプリ本体だけです。
 
 ## 意図的に対象外のもの
 
