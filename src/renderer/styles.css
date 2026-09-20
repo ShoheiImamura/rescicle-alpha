@@ -84,10 +84,28 @@ button.project-title:hover { background: #eeede9; }
 .detail-head { margin-bottom:22px; }
 .detail-head h1 { font-size:26px; margin:5px 0 8px; line-height:1.25; letter-spacing:-.03em; }
 .detail-body { font-size:14px; color:#55544e; line-height:1.7; white-space:pre-wrap; }
-.relation-row { display:flex; align-items:center; gap:10px; padding:10px 0; border-bottom:1px solid #efeee9; }
-.relation-row:last-child { border-bottom:0; }
-.relation-label { width:92px; flex:0 0 auto; color:#8a8981; font-size:11px; }
-.relation-object { font-size:13px; font-weight:600; }
+/* Reads like the map: the chain descends from upper left to lower right, so
+   what leads here is above and left, and what it leads to is below and right.
+   Position carries the direction, so no arrows and no headings are needed, and
+   the nodes reuse the map's vocabulary -- white with a thin border, dashed
+   while proposed, a heavy border on the one you are standing on. */
+.rel-map { display:grid; gap:7px; justify-items:start; }
+.rel-row, .rel-here { position:relative; border:1px solid #c5c4bc; border-radius:10px; background:#fff; padding:7px 10px; max-width:100%; }
+.rel-row.proposed { border-style:dashed; }
+.rel-row { display:flex; align-items:baseline; gap:9px; cursor:pointer; width:100%; }
+.rel-row.up { margin-left:0; }
+.rel-here { margin-left:26px; border-width:2px; border-color:#1d1d1b; padding:5px 11px; }
+.rel-row.down { margin-left:52px; width:calc(100% - 52px); }
+/* The edge into the node above, drawn like the map's own. */
+.rel-row + .rel-here::before, .rel-here + .rel-row.down::before, .rel-row.down + .rel-row.down::before {
+  content:''; position:absolute; left:-15px; top:-9px; width:15px; height:calc(50% + 9px);
+  border-left:1.5px solid #c9c8c0; border-bottom:1.5px solid #c9c8c0; border-bottom-left-radius:8px;
+}
+.rel-row:hover { border-color:#8d8c84; background:#fbfbf9; }
+.rel-row:hover .rel-go { color:#5d5c56; transform:translateX(2px); }
+.rel-pred { flex:0 0 auto; font-size:11px; color:#8a8981; }
+.rel-title { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:13px; font-weight:600; }
+.rel-go { margin-left:auto; flex:0 0 auto; color:#b5b3ab; font-size:15px; line-height:1; transition:transform .12s, color .12s; }
 
 .chat { min-width:0; min-height:0; border-left:1px solid #deddd7; background:#fff; display:grid; grid-template-rows: 45px minmax(0,1fr) auto; overflow:hidden; }
 .chat-head { border-bottom:1px solid #ecebe6; padding:0 14px; display:flex; align-items:center; font-size:12px; font-weight:700; }
@@ -157,7 +175,6 @@ button.project-title:hover { background: #eeede9; }
 .onboarding-card .field { margin-top: 22px; }
 .onboarding-card .actions { justify-content: flex-end; margin-top: 22px; }
 .actions.object-actions { margin-top: 18px; }
-.relation-row .pill { margin-left: auto; }
 .page-note { margin-bottom: 16px; }
 .chat-hint { font-size: 12px; }
 .settings-note { font-size: 11px; margin-top: 10px; }
@@ -195,7 +212,6 @@ button.project-title:hover { background: #eeede9; }
 .card-expand { margin-top: 13px; padding-top: 12px; border-top: 1px solid #efeee9; }
 .expand-head { font-size: 11px; font-weight: 700; color: #6b6a64; margin-bottom: 2px; }
 .card-expand .card-body { margin-bottom: 4px; }
-.card-expand .relation-row { padding: 9px 0; }
 .expand-empty { color: #89877f; font-size: 12px; padding: 8px 0; }
 .map-node.selected rect { stroke: #1d1d1b; stroke-width: 2; }
 .project-name-input { max-width: 340px; padding: 5px 9px; font-size: 13px; font-weight: 700; }

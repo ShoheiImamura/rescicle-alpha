@@ -411,14 +411,46 @@ function cardHtml(o, { pinned = false } = {}) {
 // The open half of a card: everything the old detail page added on top of what
 // the collapsed card already shows.
 function expansionHtml(o) {
-  const links = [
-    ...(o.incoming || []).map(r => ({ dir:'←', label:PREDICATE_LABEL[r.predicate] || r.predicate, id:r.subject_id, title:r.subject_title, type:r.subject_type, status:r.status })),
-    ...(o.outgoing || []).map(r => ({ dir:'→', label:PREDICATE_LABEL[r.predicate] || r.predicate, id:r.object_id, title:r.object_title, type:r.object_type, status:r.status }))
+  // The chain reads left to right on the map, so the same idea is used here
+  // turned on its side: what leads here above, this object itself in the
+  // middle, what it leads to below. A flat list of arrows never said where you
+  // were standing.
+  // Laid out the way the map reads: the chain runs from upper left to lower
+  // right, so what leads here sits above and left of this object and what it
+  // leads to sits below and right. Position carries the direction, so the rows
+  // need no arrows and no headings, and the nodes borrow the map's own look —
+  // white, dashed while still proposed, a heavy border on the one you are on.
+  const relRow = (r, id, title, type, side) => `<div class="rel-row ${side} ${r.status === 'proposed' ? 'proposed' : ''} clickable" data-object-id="${id}" data-object-type="${esc(type)}">
+      <span class="rel-pred">${esc(PREDICATE_LABEL[r.predicate] || r.predicate)}</span>
+      <span class="type">${esc(TYPE_LABEL[type] || type)}</span>
+      <span class="rel-title">${esc(title)}</span>
+      <span class="rel-go" aria-hidden="true">›</span>
+    </div>`;
+
+  // Which side a relation belongs on is decided by the column its other end
+  // sits in, never by which end the database calls the subject. `addresses`
+  // runs hypothesis -> question, so reading it as an outgoing edge put the
+  // question below and to the right of its own hypothesis, the opposite of
+  // where the map draws it.
+  const rank = new Map(CHAIN.map((type, i) => [type, i]));
+  const mine = rank.get(o.type) ?? 99;
+  const ends = [
+    ...(o.incoming || []).map(r => ({ r, id: r.subject_id, title: r.subject_title, type: r.subject_type })),
+    ...(o.outgoing || []).map(r => ({ r, id: r.object_id, title: r.object_title, type: r.object_type }))
   ];
-  const rows = links.map(x => `<div class="relation-row clickable" data-object-id="${x.id}" data-object-type="${esc(x.type)}"><div class="relation-label">${x.dir} ${esc(x.label)}</div><div><div class="type">${esc(TYPE_LABEL[x.type] || x.type)}</div><div class="relation-object">${esc(x.title)}</div></div>${x.status==='proposed'?'<span class="pill proposed">提案中のつながり</span>':''}</div>`).join('');
+  const upstream = ends
+    .filter(e => (rank.get(e.type) ?? 99) < mine)
+    .map(e => relRow(e.r, e.id, e.title, e.type, 'up'));
+  const downstream = ends
+    .filter(e => (rank.get(e.type) ?? 99) >= mine)
+    .map(e => relRow(e.r, e.id, e.title, e.type, 'down'));
+  const graph = upstream.length || downstream.length
+    ? `<div class="rel-map">${upstream.join('')}<div class="rel-here"><span class="type">${esc(TYPE_LABEL[o.type] || o.type)}</span></div>${downstream.join('')}</div>`
+    : '<div class="expand-empty">まだつながりはありません。</div>';
+
   return `<div class="card-expand">
-    <div class="expand-head">関連するもの</div>
-    ${rows || '<div class="expand-empty">まだつながりはありません。</div>'}
+    <div class="expand-head">つながり</div>
+    ${graph}
     ${o.type==='asset' && o.asset ? `<div class="expand-head">ローカルファイル</div><div class="card-body">${esc(o.asset.relative_path)}
 ${fmtSize(o.asset.size_bytes)} · ${esc(o.asset.modified_at)}</div>` : ''}
   </div>`;
