@@ -30,7 +30,13 @@ let state = {
   selectedObjectId: null,
   selectedObject: null,
   files: [],
-  loading: false,
+  // The message a turn is running for. It is held here rather than left to the
+  // workspace, because the workspace only comes back when the whole turn is
+  // done and that is seconds to minutes away.
+  pending: null,
+  // render() rebuilds the whole tree, so what the researcher has typed has to
+  // live in state or it is lost every time anything else redraws.
+  draft: '',
   modal: null,
   renaming: false,
   renameDraft: null,
@@ -44,6 +50,10 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&
 // show what the main process actually said, not the plumbing around it.
 const errText = (e) => String(e?.message ?? e).replace(new RegExp("^Error invoking remote method '[^']*': ?(Error: ?)?"), "");
 const fmtSize = (n) => n < 1024 ? `${n} B` : n < 1024*1024 ? `${(n/1024).toFixed(1)} KB` : `${(n/1024/1024).toFixed(1)} MB`;
+const fmtElapsed = (ms) => {
+  const s = Math.floor(ms / 1000);
+  return s < 60 ? `${s}秒` : `${Math.floor(s / 60)}分${String(s % 60).padStart(2, '0')}秒`;
+};
 
 async function boot() {
   state.bootstrap = await api.bootstrap();
@@ -75,7 +85,7 @@ function onboardingHtml() {
 
 function workspaceHtml() {
   const w = state.workspace;
-  return `<div class="shell ${state.loading ? 'loading':''}">
+  return `<div class="shell">
     <header class="topbar"><div class="brand">rescicle</div>${projectTitleHtml()}<button class="root-hint" id="changeRoot" title="クリックして研究フォルダを変更">${esc(w.project.root_path)}</button><button class="btn small" id="settingsBtn">AI接続</button></header>
     <div class="layout">
       <aside class="sidebar">${sidebarHtml()}</aside>
@@ -247,9 +257,14 @@ function filesHtml() {
 function chatHtml() {
   const selected = state.selectedObject ? state.selectedObject.title : null;
   const messages = state.workspace.messages || [];
+  const thread = messages.map(m => `<div class="message ${m.role}">${esc(m.content)}</div>`);
+  if (state.pending) {
+    thread.push(`<div class="message user">${esc(state.pending.text)}</div>`);
+    thread.push(`<div class="message assistant thinking"><span class="dots"><i></i><i></i><i></i></span>考えています<span class="elapsed" id="thinkingElapsed">${fmtElapsed(Date.now() - state.pending.startedAt)}</span></div>`);
+  }
   return `<div class="chat-head">会話<span class="pill backend-pill" id="backendPill">Claude Code</span><div class="chat-context">${selected ? `対象: ${esc(selected)}` : '研究全体'}</div></div>
-    <div class="messages" id="messages">${messages.length ? messages.map(m => `<div class="message ${m.role}">${esc(m.content)}</div>`).join('') : '<div class="muted chat-hint">「何を調べている研究か」から普通に話してください。</div>'}</div>
-    <div class="chat-compose"><textarea id="chatInput" class="input" placeholder="研究について話す…"></textarea>${state.error ? `<div class="error">${esc(state.error)}</div>`:''}<div class="compose-actions"><div class="privacy">ファイル本文はAIへ自動送信しません</div><button class="btn primary" id="sendBtn">送信</button></div></div>`;
+    <div class="messages" id="messages">${thread.length ? thread.join('') : '<div class="muted chat-hint">「何を調べている研究か」から普通に話してください。</div>'}</div>
+    <div class="chat-compose"><textarea id="chatInput" class="input" placeholder="研究について話す…">${esc(state.draft)}</textarea>${state.error ? `<div class="error">${esc(state.error)}</div>`:''}<div class="compose-actions"><div class="privacy">ファイル本文はAIへ自動送信しません</div><button class="btn primary" id="sendBtn"${state.pending ? ' disabled' : ''}>${state.pending ? '応答待ち…' : '送信'}</button></div></div>`;
 }
 
 function claudeSectionHtml(agent) {
@@ -329,6 +344,7 @@ function bind() {
   }));
   document.getElementById('sendBtn')?.addEventListener('click', sendMessage);
   document.getElementById('chatInput')?.addEventListener('keydown', e => { if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') sendMessage(); });
+  document.getElementById('chatInput')?.addEventListener('input', e => { state.draft = e.target.value; });
   document.getElementById('settingsBtn')?.addEventListener('click', () => { state.modal='settings'; state.error=null; render(); });
   document.getElementById('closeModal')?.addEventListener('click', () => { state.modal=null; state.error=null; render(); });
   document.getElementById('refreshAgent')?.addEventListener('click', refreshAgent);
@@ -377,16 +393,42 @@ async function loadSelected(id) {
 async function refreshWorkspace() {
   state.workspace = await api.openProject(state.workspace.project.id);
 }
+// Ticks the elapsed label in place. A render() every second would throw away
+// whatever the researcher has started typing for their next message.
+let thinkingTimer = null;
+function stopThinkingTimer() {
+  if (thinkingTimer) { clearInterval(thinkingTimer); thinkingTimer = null; }
+}
+function startThinkingTimer() {
+  stopThinkingTimer();
+  thinkingTimer = setInterval(() => {
+    const label = document.getElementById('thinkingElapsed');
+    if (!label || !state.pending) { stopThinkingTimer(); return; }
+    label.textContent = fmtElapsed(Date.now() - state.pending.startedAt);
+  }, 1000);
+}
+
 async function sendMessage() {
   const input = document.getElementById('chatInput');
-  const text = input?.value.trim(); if (!text || state.loading) return;
-  state.loading = true; state.error = null; render();
+  const text = (input?.value ?? state.draft).trim();
+  if (!text || state.pending) return;
+  state.pending = { text, startedAt: Date.now() };
+  state.draft = '';
+  state.error = null;
+  render();
+  startThinkingTimer();
   try {
     const result = await api.sendMessage({ projectId: state.workspace.project.id, text, selectedObjectId: state.selectedObjectId });
     state.workspace = result.workspace;
     if (state.selectedObjectId) state.selectedObject = await api.getObject(state.selectedObjectId);
-  } catch (e) { state.error = errText(e); }
-  state.loading = false; render();
+  } catch (e) {
+    state.error = errText(e);
+    // A failed turn hands the text back instead of making them retype it.
+    state.draft = text;
+  }
+  stopThinkingTimer();
+  state.pending = null;
+  render();
 }
 
 async function refreshAgent() {

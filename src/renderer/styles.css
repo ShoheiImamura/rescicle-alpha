@@ -101,7 +101,18 @@ button.project-title:hover { background: #eeede9; }
 .modal label { display:block; font-size:11px; font-weight:700; margin-bottom:6px; color:#5e5d57; }
 .modal-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:20px; }
 .error { color:#9b3030; font-size:12px; margin-top:8px; }
-.loading { opacity:.6; pointer-events:none; }
+.btn:disabled { opacity:.45; cursor:default; }
+
+/* A turn runs for seconds to minutes, so the wait is shown inside the thread
+   next to the message it belongs to, rather than by disabling the window. */
+.message.thinking { display:flex; align-items:center; gap:8px; color:#6d6b65; }
+.message.thinking .elapsed { font-size:11px; color:#918f87; font-variant-numeric:tabular-nums; }
+.dots { display:inline-flex; gap:3px; }
+.dots i { width:4px; height:4px; border-radius:50%; background:#a3a19a; animation:blink 1.2s infinite; }
+.dots i:nth-child(2) { animation-delay:.2s; }
+.dots i:nth-child(3) { animation-delay:.4s; }
+@keyframes blink { 0%, 60%, 100% { opacity:.25; } 30% { opacity:1; } }
+@media (prefers-reduced-motion: reduce) { .dots i { animation:none; opacity:.55; } }
 
 @media (max-width: 1080px) {
   .layout { grid-template-columns: 190px minmax(380px,1fr) 330px; }
