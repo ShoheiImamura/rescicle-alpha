@@ -672,6 +672,19 @@ function buildMap(objects, relations) {
       next = node.y + MAP.H + MAP.ROW_GAP;
     }
   }
+  // Both passes only ever push a node down -- max(next, desired) in each -- so
+  // nothing ever brings the finished layout back to the top. The first column
+  // gets dragged down to meet the block it feeds, that block was itself placed
+  // below whatever it was aiming at, and the whole map ends up hanging from the
+  // lowest anchor in the chain: with twenty objects the first node sat 330px
+  // below the headings and the researcher opened the map onto an empty band.
+  //
+  // The passes are about nodes relative to each other, and that is all they get
+  // to decide. Where the result sits on the page is one subtraction afterwards.
+  const top = Math.min(...[...pos.values()].map(q => q.y));
+  if (Number.isFinite(top) && top !== MAP.HEAD) {
+    for (const node of pos.values()) node.y -= top - MAP.HEAD;
+  }
   const ys = [...pos.values()].map(q => q.y + MAP.H);
   return {
     pos, edges, cols,
