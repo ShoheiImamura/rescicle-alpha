@@ -5,6 +5,7 @@ src-tauri/gen
 # Left over from the Electron build; nothing produces it any more.
 out
 
+.cursor
 .vscode
 .idea
 .DS_Store

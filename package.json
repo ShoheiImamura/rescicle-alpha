@@ -1,13 +1,13 @@
 {
   "name": "rescicle",
   "productName": "rescicle",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "description": "Local-first research copilot powered by the user's existing Claude Code environment.",
   "author": "rescicle project",
   "license": "UNLICENSED",
   "private": true,
   "scripts": {
-    "dev": "tauri dev",
+    "dev": "node scripts/debug-cargo-env.cjs tauri dev",
     "build": "tauri build",
     "tauri": "tauri",
     "test": "cargo test --manifest-path src-tauri/Cargo.toml"
