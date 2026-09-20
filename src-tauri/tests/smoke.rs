@@ -409,6 +409,27 @@ fn a_measurement_is_run_or_not_regardless_of_its_status() {
         "the date should come from the file the measurement produced"
     );
 
+    // The agent is told to record this and to keep it out of the body, so it has
+    // to be able to see it; otherwise it would set what is already set and have
+    // nothing to answer "which measurements are left" from.
+    let context = db.context(&project_id, None).unwrap();
+    let in_context = context["objects"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|o| o["id"] == Value::String(m_id.clone()))
+        .expect("the measurement reaches the agent");
+    assert_eq!(in_context["performed"], Value::Bool(true));
+    assert_eq!(str_of(in_context, "performed_at"), file_date);
+    // Nothing else has the axis, so nothing else carries the field.
+    let question = context["objects"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|o| o["type"] == Value::String("question".into()))
+        .expect("the question reaches the agent");
+    assert!(question.get("performed").is_none());
+
     // A date already recorded is the one somebody chose, so linking a file does
     // not overwrite it.
     db.set_measurement_performed(&m_id, true, Some("2026-09-10T00:00:00.000Z"), "researcher")

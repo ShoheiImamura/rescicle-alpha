@@ -697,10 +697,29 @@ impl Db {
             .into_iter()
             .take(120)
             .map(|o| {
-                json!({
+                let mut row = json!({
                     "id": o.get("id"), "type": o.get("type"), "title": o.get("title"),
                     "body": o.get("body"), "origin": o.get("origin"), "status": o.get("status"),
-                })
+                });
+                // The agent is told to record whether a measurement has been run
+                // and to keep it out of the body. Without it here it could write
+                // the fact and never see it again, so it would go on setting what
+                // is already set and answer "which ones are left" from nothing.
+                // Only a measurement has the axis; the rest would carry a field
+                // that is false for a reason that has nothing to do with them.
+                if text(&o, "type") == "measurement" {
+                    let map = row.as_object_mut().expect("row is an object");
+                    let done = o
+                        .get("performed")
+                        .and_then(Value::as_i64)
+                        .map(|n| n != 0)
+                        .unwrap_or(false);
+                    map.insert("performed".into(), json!(done));
+                    if let Some(at) = o.get("performed_at").filter(|at| !at.is_null()) {
+                        map.insert("performed_at".into(), at.clone());
+                    }
+                }
+                row
             })
             .collect();
         let all_relations = self.list_relations(project_id)?;

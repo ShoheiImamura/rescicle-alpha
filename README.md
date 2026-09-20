@@ -36,17 +36,20 @@ claude mcp remove --scope user rescicle
 3. **AI接続** を開き、Claude Codeが検出されていることを確認します。rescicleはすでにサインイン済みの `claude` CLIを実行するので、APIキーは不要です。
 4. 必要なら **MCP設定コマンドをコピー** を押し、ターミナルで一度実行してください。rescicleのローカルMCPサーバー経由で、Claude Code側からrescicleを操作できるようになります。
 5. 研究について普通に話します。
-6. Question / Hypothesis / Prediction / Measurement がResearch Objectとして現れ、Confirm / Rejectできます。
-7. 手元の既存ファイルをAssetとして登録できます。
+6. Question / Hypothesis / Prediction / Measurement がResearch Objectとして現れ、Confirm / Rejectできます。AIが引いたつながりも、同じように1本ずつ決められます。
+7. AIが引かなかったつながりは、カードを開いて **＋ つなぐ** から自分で引けます。相手を選んだ時点で引かれます（型の組が述語を決めるので、選ぶものは相手だけです）。要らない線は **はずす** で消えます。消した線は同じ手順で引き直せます。
+8. 測定には **実施した** があります。確定したかどうか（status）とは別の軸で、実際にやったかどうかです。
+9. 手元の既存ファイルをAssetとして登録できます。登録するとき、それを生み出した測定を選べます。選ぶと登録と線引きが同時に終わり、測定は実施済みになります。
+10. **Ctrl+F** で検索、**Ctrl+K** で会話欄へ。Escapeで戻ります。
 
 ## AIとの境界
 
 ### 会話モード
 
-エージェントは研究フォルダではなく、**独立したrescicleのエージェント用ディレクトリ**で動きます。rescicleが送るのは次の3つだけです:
+エージェントは研究フォルダではなく、**独立したrescicleのエージェント用ディレクトリ**で動きます。rescicleが送るのは次の4つだけです:
 
 - 会話テキスト
-- 要約されたResearch Object / Relation
+- 要約されたResearch Object / Relation（測定については実施したかどうかも）
 - 相対ファイル名・サイズ・更新日時
 - **あなたが共有したファイルの抜粋**（先頭4KBまで）
 
@@ -64,6 +67,8 @@ rescicleはローカルのstdio MCPサーバーとしても動作します。Cla
 - Objectの確定・却下
 - プロジェクト内ファイルのメタデータ一覧
 - 既存のローカルファイルのAsset登録
+
+会話モードと同じではありません。測定を実施済みにすること、つながりを外すことは、いまは画面と会話モードからしかできません。
 
 生成される設定コマンドは次と同等です:
 
@@ -86,14 +91,17 @@ claude mcp add --transport stdio --scope user rescicle -- "C:\...\rescicle.exe" 
 
 Relation:
 
-- `addresses`
-- `predicts`
-- `tested_by`
-- `produces`
-- `references`
-- `related_to`
+- `addresses` — Hypothesis → Question
+- `predicts` — Hypothesis → Prediction
+- `tested_by` — Prediction → Measurement
+- `produces` — Measurement → Asset
+- `references` / `related_to` — 型を選ばない2つ
 
-各Research Object / Relationは `origin` と `status`（`proposed` / `confirmed` / `rejected`）を持ちます。
+画面から引けるのは上の4本だけです。型の組が述語を一意に決めるので、選ぶのは相手のオブジェクトだけで済みます。残る2つはどの型同士でも通るぶん述語を選ばせる必要があり、いまはAIとMCP経由でしか作られません。
+
+各Research Object / Relationは `origin` と `status`（`proposed` / `confirmed` / `rejected`）を持ちます。Noteでは同じ3つが「未整理 / 残す / 不要」と表示されます。メモを確定したり却下したりするのは、その言葉の意味ではないためです。
+
+Measurementだけは、これに加えて**実施したかどうか**を持ちます。statusは「やると決めたか」で、こちらは「やったか」です。確定したがまだ実施していない測定は普通にあるので、同じ軸には載せられません。日付は分かるときだけ表示します — ボタンを押した時刻は測定がいつ走ったかについて何も言わないので記録せず、その測定が生み出したデータファイルの更新日時があればそれを使います。
 
 ## 構成
 
