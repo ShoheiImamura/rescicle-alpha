@@ -70,7 +70,40 @@ impl Db {
         conn.pragma_update(None, "synchronous", "NORMAL")?;
         let db = Self { conn };
         db.migrate_notes_onto_objects()?;
+        db.add_criterion_columns()?;
         Ok(db)
+    }
+
+    // What would decide a prediction. Columns on the object row rather than a
+    // table of their own, for the same reason the note was: they cannot exist
+    // without the prediction they belong to, and there is no criterion that is
+    // about two predictions at once.
+    //
+    // Two of them, because they are read differently and one is meant to be
+    // compared. `criterion` is the expression -- ρ(a,b) < 0, ∀lot : p_fresh >
+    // p_frozen -- and `criterion_note` is what the symbols stand for and what has
+    // to hold alongside. They were one field with the expression on the first
+    // line, which works until someone writes two lines of prose and the first of
+    // them becomes the expression. More to the point, two predictions can only be
+    // checked against each other -- same claim? opposite signs? -- if the
+    // expression is a field and not a paragraph that happens to begin with one.
+    //
+    // The predictions written before this existed keep a NULL. They are not
+    // filled in and not deleted -- the researcher and the agent wrote them, and
+    // guessing what would have refuted them is not rescicle's to do. The card
+    // says the criterion is missing, which is the true thing to say.
+    fn add_criterion_columns(&self) -> Result<()> {
+        for column in ["criterion", "criterion_note"] {
+            let present = self
+                .conn
+                .prepare("SELECT 1 FROM pragma_table_info('objects') WHERE name=?")?
+                .exists([column])?;
+            if !present {
+                self.conn
+                    .execute(&format!("ALTER TABLE objects ADD COLUMN {column} TEXT"), [])?;
+            }
+        }
+        Ok(())
     }
 
     // A remark about a hypothesis was a `note` object joined to it by a relation,
@@ -277,8 +310,8 @@ impl Db {
         let id = new_id(&input.type_[..4.min(input.type_.len())]);
         let stamp = now();
         self.conn.execute(
-            "INSERT INTO objects(id,project_id,type,title,body,origin,status,created_at,updated_at)
-             VALUES(?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO objects(id,project_id,type,title,body,origin,status,criterion,criterion_note,created_at,updated_at)
+             VALUES(?,?,?,?,?,?,?,?,?,?,?)",
             params![
                 id,
                 project_id,
@@ -287,6 +320,11 @@ impl Db {
                 input.body,
                 input.origin,
                 input.status,
+                // Only a prediction carries these. validate_object_input has
+                // already refused a prediction without the expression, and an
+                // annotation with no expression beside it.
+                Some(crate::domain::criterion_of(input)).filter(|c| !c.is_empty()),
+                Some(crate::domain::criterion_note_of(input)).filter(|c| !c.is_empty()),
                 stamp,
                 stamp
             ],
@@ -300,6 +338,53 @@ impl Db {
             Some(json!({ "type": input.type_, "status": input.status })),
         )?;
         query_one(&self.conn, "SELECT * FROM objects WHERE id=?", &[&id])?
+            .ok_or_else(|| Error("object not found".into()))
+    }
+
+    // Fills in what would decide a prediction, for the ones written before the
+    // field existed and for the ones that turn out to have been written badly.
+    //
+    // Unlike the note, this one cannot be cleared: a prediction is not allowed to
+    // exist without a criterion, so emptying it would put the record into a state
+    // create_object refuses to produce. Rewriting it is the way to change it.
+    pub fn set_object_criterion(
+        &self,
+        object_id: &str,
+        criterion: &str,
+        criterion_note: &str,
+        actor: &str,
+    ) -> Result<Value> {
+        let object = query_one(&self.conn, "SELECT * FROM objects WHERE id=?", &[&object_id])?
+            .ok_or_else(|| Error("object not found".into()))?;
+        if text(&object, "type") != "prediction" {
+            return err("判定条件を持てるのは予測だけです。");
+        }
+        let trimmed = criterion.trim();
+        if trimmed.is_empty() {
+            return err("判定条件を空にはできません。何と比べて、どうなったら外れるのかを書いてください。");
+        }
+        // Both are replaced together. The annotation explains this expression, so
+        // leaving the old one in place beside a new one would describe something
+        // that is no longer there.
+        let note = criterion_note.trim();
+        self.conn.execute(
+            "UPDATE objects SET criterion=?, criterion_note=?, updated_at=? WHERE id=?",
+            params![
+                trimmed,
+                (!note.is_empty()).then(|| note.to_string()),
+                now(),
+                object_id
+            ],
+        )?;
+        self.event(
+            &text(&object, "project_id"),
+            "object_criterion_set",
+            actor,
+            Some(object_id),
+            None,
+            None,
+        )?;
+        self.get_object(object_id)?
             .ok_or_else(|| Error("object not found".into()))
     }
 
@@ -683,6 +768,9 @@ impl Db {
                 body: None,
                 origin: origin.into(),
                 status: "confirmed".into(),
+                // Only a prediction has these.
+                criterion: None,
+                criterion_note: None,
             },
             origin,
         )?;
@@ -820,6 +908,16 @@ impl Db {
                     "body": o.get("body"), "note": o.get("note"),
                     "origin": o.get("origin"), "status": o.get("status"),
                 });
+                // A prediction carries what would decide it, and only a
+                // prediction does. Sent even when it is null, because null is
+                // what the agent has to see to offer to fill it -- the ones
+                // written before the field existed are exactly the ones worth
+                // asking about.
+                if text(&o, "type") == "prediction" {
+                    let map = row.as_object_mut().expect("row is an object");
+                    map.insert("criterion".into(), o.get("criterion").cloned().unwrap_or(Value::Null));
+                    map.insert("criterion_note".into(), o.get("criterion_note").cloned().unwrap_or(Value::Null));
+                }
                 // The agent is told to record whether a measurement has been run
                 // and to keep it out of the body. Without it here it could write
                 // the fact and never see it again, so it would go on setting what

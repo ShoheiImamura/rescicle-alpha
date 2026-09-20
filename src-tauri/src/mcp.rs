@@ -16,11 +16,16 @@ fn tools() -> Value {
         },
         {
             "name": "create_object",
-            "description": "Create a proposed research object in the current rescicle project.",
+            "description": "Create a proposed research object in the current rescicle project. A prediction must carry a criterion: what would decide it -- a direction, an ordering, or a magnitude with something to compare against. A prediction that cannot say what would refute it is not a prediction and is refused.",
             "inputSchema": { "type": "object", "properties": {
-                "type": { "type": "string", "enum": ["question","hypothesis","prediction","measurement","note"] },
+                // `note` was in this list after it stopped being a type, so the
+                // tool offered something create_object refuses. It is a column on
+                // the object it is about; set_note is how it is written.
+                "type": { "type": "string", "enum": ["question","hypothesis","prediction","measurement"] },
                 "title": { "type": "string" },
                 "body": { "type": ["string","null"] },
+                "criterion": { "type": ["string","null"], "description": "Required for a prediction: the expression that decides it, e.g. rho(a,b) < 0. Ignored for other types." },
+                "criterionNote": { "type": ["string","null"], "description": "What the symbols stand for and what must hold alongside. Only with a criterion." },
                 "origin": { "type": "string", "enum": ["researcher","agent"] }
             }, "required": ["type","title","origin"], "additionalProperties": false }
         },
@@ -103,6 +108,14 @@ pub fn call_tool(db: &Db, data_dir: &Path, name: &str, args: &Value) -> Result<V
                     .map(str::to_string),
                 origin: arg_str(args, "origin"),
                 status: "proposed".into(),
+                criterion: args
+                    .get("criterion")
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
+                criterion_note: args
+                    .get("criterionNote")
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
             },
             if arg_str(args, "origin") == "researcher" {
                 "researcher-via-mcp"

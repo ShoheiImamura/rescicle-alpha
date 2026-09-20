@@ -130,6 +130,26 @@ button.project-title:hover { background: #eeede9; }
    in the nav, joined on by a relation, which said a side remark exists on its own
    and can be about two things at once. */
 .card-note { margin-top:7px; padding-left:9px; border-left:2px solid #e2e1dc; color:#87857e; font-size:12px; line-height:1.55; white-space:pre-wrap; }
+/* What would decide this prediction. Boxed rather than given the note's quiet
+   left rule, because it is not an aside: it is the line that makes the thing
+   above it a prediction at all, and a formula read at body weight disappears
+   into the prose around it. Monospace where the text is symbols. */
+.card-criterion { margin-top:8px; padding:7px 10px; border:1px solid #e4e3dc; border-radius:8px; background:#fafaf7; font-size:12px; line-height:1.6; }
+/* A line each, with its own label. They are two fields and they are read at
+   different moments -- the expression to see whether the prediction held, the
+   note once, to learn what the symbols mean -- so neither is a continuation of
+   the other. The labels are a fixed column so the two align down the left. */
+.card-criterion-row { display:flex; align-items:baseline; gap:9px; }
+.card-criterion-row + .card-criterion-row { margin-top:5px; }
+.card-criterion-label { flex:none; width:24px; font-size:10px; font-weight:800; color:#939188; letter-spacing:.09em; }
+/* Monospace so the symbols line up and so the expression reads as something to
+   be evaluated rather than as more of the prose above it. pre-wrap because a
+   criterion can be a conjunction written one condition to a line. */
+.card-criterion-row code { min-width:0; font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:12.5px; color:#181816; white-space:pre-wrap; overflow-wrap:anywhere; }
+.card-criterion-row span:not(.card-criterion-label) { min-width:0; color:#87857e; font-size:11.5px; white-space:pre-wrap; }
+/* Missing, not empty. No red: nothing is broken and nothing is irreversible --
+   the prediction is unfinished, which is a normal state for one to be in. */
+.card-criterion.missing { border-style:dashed; color:#8c8a82; }
 .pills { display:flex; gap:5px; margin-top:9px; flex-wrap:wrap; }
 .pill { border:1px solid #dfded9; border-radius:999px; padding:2px 7px; font-size:10px; color:#65645f; background:#fafaf8; }
 .pill.proposed { border-style:dashed; }

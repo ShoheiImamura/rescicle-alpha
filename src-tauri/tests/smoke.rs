@@ -38,6 +38,10 @@ fn object(type_: &str, title: &str, origin: &str, status: &str) -> ObjectInput {
         body: None,
         origin: origin.into(),
         status: status.into(),
+        // A prediction is refused without one, and every other type is refused
+        // with one, so the helper gives each what it is allowed to have.
+        criterion: (type_ == "prediction").then(|| "p_a > p_b".to_string()),
+        criterion_note: None,
     }
 }
 
@@ -57,6 +61,8 @@ fn op(op: &str) -> Operation {
         path: None,
         performed: None,
         note: None,
+        criterion: None,
+        criterion_note: None,
     }
 }
 
@@ -138,6 +144,10 @@ fn smoke() {
                 ref_: Some("p1".into()),
                 object_type: Some("prediction".into()),
                 title: Some("A second sample shows the same change".into()),
+                // Without this the operation is refused, which is the point of
+                // the rule: a prediction that cannot say what would decide it is
+                // not one.
+                criterion: Some("effect(sample 2) has the same sign as effect(sample 1)".into()),
                 origin: Some("agent".into()),
                 status: Some("proposed".into()),
                 ..op("create_object")

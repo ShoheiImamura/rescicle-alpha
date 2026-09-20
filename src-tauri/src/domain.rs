@@ -28,6 +28,14 @@ pub struct ObjectInput {
     pub body: Option<String>,
     pub origin: String,
     pub status: String,
+    // What would decide this prediction, as an expression. Only a prediction has
+    // one, and a prediction is not valid without one -- see validate_object_input.
+    #[serde(default)]
+    pub criterion: Option<String>,
+    // What the symbols stand for, and what has to hold alongside. Optional, and
+    // it cannot stand without the expression it annotates.
+    #[serde(default)]
+    pub criterion_note: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -55,7 +63,52 @@ pub fn validate_object_input(input: &ObjectInput) -> Result<()> {
     if input.title.trim().is_empty() {
         return err("title is required");
     }
+    // A prediction that cannot say what would decide it is not a prediction. It
+    // is the hypothesis said again in the language of observation, and measuring
+    // it settles nothing about the claim it hangs from -- which is exactly what
+    // had happened: 「Xが生着率を左右している」 above 「Xで生着率が分かれる」, twice
+    // over, with nothing in between them that could come out either way.
+    //
+    // So this is a rule about what a prediction is, and it lives here with the
+    // other ones. Only the type that needs it is asked for it; the rest carry no
+    // field that would be empty for a reason that has nothing to do with them.
+    if input.type_ == "prediction" && criterion_of(input).is_empty() {
+        return err(
+            "予測には判定条件が要ります。何と比べて、どうなったら外れるのかを書いてください（向き・順序・比べる大きさのどれか）。",
+        );
+    }
+    // And only a prediction has one. set_object_criterion already refuses the
+    // other types; without this, creation would quietly accept what the setter
+    // rejects, and the same field would mean two different things depending on
+    // which way it got written.
+    if input.type_ != "prediction" && !criterion_of(input).is_empty() {
+        return err("判定条件を持てるのは予測だけです。");
+    }
+    // The annotation explains the expression, so there is nothing for it to be
+    // about on its own. Refused rather than dropped: prose arriving here with no
+    // expression beside it is a criterion that was written the old way, and
+    // silently keeping half of it would look like it had been accepted.
+    if !criterion_note_of(input).is_empty() && criterion_of(input).is_empty() {
+        return err("判定条件の補足だけを書くことはできません。先に式を書いてください。");
+    }
     Ok(())
+}
+
+/// The criterion as it will be stored: trimmed, and empty when there is none.
+pub fn criterion_of(input: &ObjectInput) -> &str {
+    trimmed(&input.criterion)
+}
+
+/// The note on the criterion, trimmed, and empty when there is none.
+pub fn criterion_note_of(input: &ObjectInput) -> &str {
+    trimmed(&input.criterion_note)
+}
+
+fn trimmed(value: &Option<String>) -> &str {
+    match value {
+        Some(v) => v.trim(),
+        None => "",
+    }
 }
 
 pub fn validate_relation_input(input: &RelationInput) -> Result<()> {
@@ -83,4 +136,53 @@ pub fn allowed_relation(subject_type: &str, predicate: &str, object_type: &str) 
     ];
     let key = format!("{subject_type}|{predicate}|{object_type}");
     EXACT.contains(&key.as_str()) || predicate == "references" || predicate == "related_to"
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn input(type_: &str, criterion: Option<&str>) -> ObjectInput {
+        ObjectInput {
+            type_: type_.into(),
+            title: "t".into(),
+            body: None,
+            origin: "agent".into(),
+            status: "proposed".into(),
+            criterion: criterion.map(str::to_string),
+            criterion_note: None,
+        }
+    }
+
+    // The rule is the definition, not a form field: a prediction that cannot say
+    // what would decide it is the hypothesis restated, and measuring it settles
+    // nothing about the claim it hangs from.
+    #[test]
+    fn a_prediction_needs_a_criterion() {
+        assert!(validate_object_input(&input("prediction", None)).is_err());
+        assert!(validate_object_input(&input("prediction", Some("   "))).is_err());
+        assert!(validate_object_input(&input("prediction", Some("p_a > p_b"))).is_ok());
+    }
+
+    // And nothing else may carry one. set_object_criterion refuses the other
+    // types; creation has to refuse them too, or the field would mean one thing
+    // when written at birth and another when written later.
+    #[test]
+    fn only_a_prediction_may_carry_one() {
+        assert!(validate_object_input(&input("hypothesis", Some("p_a > p_b"))).is_err());
+        assert!(validate_object_input(&input("hypothesis", None)).is_ok());
+        assert!(validate_object_input(&input("question", Some(""))).is_ok());
+    }
+
+    // The note explains the expression, so it has nothing to be about on its own.
+    #[test]
+    fn the_note_cannot_stand_without_the_expression() {
+        let mut orphan = input("prediction", None);
+        orphan.criterion_note = Some("{88dc}{8db3}{3060}{3051}".into());
+        assert!(validate_object_input(&orphan).is_err());
+
+        let mut both = input("prediction", Some("p_a > p_b"));
+        both.criterion_note = Some("p は生着率".into());
+        assert!(validate_object_input(&both).is_ok());
+    }
 }

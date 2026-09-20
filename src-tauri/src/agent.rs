@@ -210,6 +210,10 @@ pub struct Operation {
     pub performed: Option<bool>,
     #[serde(default)]
     pub note: Option<String>,
+    #[serde(default)]
+    pub criterion: Option<String>,
+    #[serde(default)]
+    pub criterion_note: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -268,6 +272,8 @@ pub fn apply_operations(
                         body: op.body.clone(),
                         origin: op.origin.clone().unwrap_or_else(|| "agent".into()),
                         status: op.status.clone().unwrap_or_else(|| "proposed".into()),
+                        criterion: op.criterion.clone(),
+                        criterion_note: op.criterion_note.clone(),
                     },
                     actor_for(op.origin.as_ref()),
                 )
@@ -281,6 +287,18 @@ pub fn apply_operations(
                     }
                     Ok((json!({ "ok": true, "op": op.op, "id": id }), Some(id)))
                 }),
+            // For a prediction written before criteria existed, or one whose
+            // criterion turns out not to decide anything.
+            "set_criterion" => {
+                let id = deref(&refs, &op.id);
+                db.set_object_criterion(
+                    &id,
+                    op.criterion.as_deref().unwrap_or(""),
+                    op.criterion_note.as_deref().unwrap_or(""),
+                    "agent",
+                )
+                    .map(|updated| (json!({ "ok": true, "op": op.op, "id": updated["id"] }), None))
+            }
             // A remark on something that already exists.
             "set_note" => {
                 let id = deref(&refs, &op.id);

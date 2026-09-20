@@ -807,7 +807,7 @@ function searchHtml() {
 const TYPE_NOTE = {
   question: '調べたいこと。仮説はここに答えようとします。',
   hypothesis: '<strong>なぜ</strong>そうなるのか。機構や原因の主張で、それ自体は直接見えません。「〜が左右している」だけだと、そこから出る予測は「差が出る」しか言えません。何を通して、どちら向きに効くのかまで書けると、予測が具体的になります。',
-  prediction: 'その仮説が本当なら、<strong>何が見えるはずか</strong>。測ればイエスかノーが出る形で書きます。<strong>仮説を見ずに予測だけ読んで、何を測ればいいか分かるか</strong>が目安です。仮説と同じことを言っていたら、それは言い換えであって予測ではありません。',
+  prediction: 'その仮説が本当なら、<strong>何が見えるはずか</strong>。どれも<strong>判定条件</strong>を持ちます — 何と比べて、どうなったら外れるのか。向き・順序・比べる大きさのどれかです。「差が出る」だけでは、比べる先が無いので判定できません。<strong>仮説を見ずに予測だけ読んで、何を測ればいいか分かるか</strong>が目安です。',
   measurement: 'その予測を確かめるために実際にやること。'
 };
 
@@ -868,6 +868,36 @@ function statusButtonsHtml(o) {
 // listed under データ the type is already said by the heading, and what the card
 // cannot otherwise say is which file it is: two runs under different folders
 // share a name, and the title is only the name.
+// What would decide a prediction, on the prediction. It is not the body and not
+// a remark: the body argues, the note is an aside, and this is the one line that
+// makes the prediction a prediction. So it is labelled and sits apart from both.
+//
+// A prediction from before the field existed shows the gap, in words rather than
+// by being blank -- a blank reads as "nothing to say here", and what is true is
+// that nobody has said yet what would refute it. Nothing fills it in
+// automatically: the researcher and the agent wrote these, and guessing what
+// would have refuted them is not rescicle's to do.
+function criterionHtml(o) {
+  if (o.type !== 'prediction') return '';
+  const value = (o.criterion ?? '').trim();
+  if (!value) {
+    return '<div class="card-criterion missing"><span class="card-criterion-label">判定</span>まだありません。何と比べて、どうなったら外れるのかが決まると、この予測は確かめられるようになります。</div>';
+  }
+  // Two fields, drawn differently because they are read differently: the
+  // expression is looked at to see whether the prediction held, and the note
+  // under it is read once, to find out what the symbols stand for. Run together
+  // at one weight, `ρ < 0` disappears into the sentence explaining it.
+  //
+  // It was one field with the expression on the first line, which the backend
+  // has since split -- so there is nothing to parse here and no convention for
+  // anyone to break by writing two lines of prose.
+  const note = (o.criterion_note ?? '').trim();
+  return `<div class="card-criterion">
+    <div class="card-criterion-row"><span class="card-criterion-label">判定</span><code>${esc(value)}</code></div>
+    ${note ? `<div class="card-criterion-row"><span class="card-criterion-label">補足</span><span>${esc(note)}</span></div>` : ''}
+  </div>`;
+}
+
 // Presses of three different weights used to sit in this row as peers, and two
 // of them were filled dark -- so これについて話す, which changes nothing and is
 // undone by clicking somewhere else, looked exactly like 確定, which settles a
@@ -925,7 +955,7 @@ function cardHtml(o, { pinned = false, fileLine = null } = {}) {
     ? ''
     : `<span class="pill ${o.origin === 'agent' ? 'agent' : ''}">${esc(ORIGIN_LABEL[o.origin] || o.origin)}</span>`;
   const actions = cardActionsHtml(o, pinned);
-  return `<div class="card ${open ? 'open' : ''} ${o.status}">${row}<div class="card-main">${head}<div class="card-title">${esc(o.title)}</div>${o.body ? `<div class="card-body">${esc(o.body)}</div>`:''}${o.note ? `<div class="card-note">${esc(o.note)}</div>`:''}<div class="pills">${status}${origin}${performedPillHtml(o)}</div></div><div class="card-actions">${actions}</div></div>${full ? expansionHtml(full) : ''}</div>`;
+  return `<div class="card ${open ? 'open' : ''} ${o.status}">${row}<div class="card-main">${head}<div class="card-title">${esc(o.title)}</div>${o.body ? `<div class="card-body">${esc(o.body)}</div>`:''}${criterionHtml(o)}${o.note ? `<div class="card-note">${esc(o.note)}</div>`:''}<div class="pills">${status}${origin}${performedPillHtml(o)}</div></div><div class="card-actions">${actions}</div></div>${full ? expansionHtml(full) : ''}</div>`;
 }
 
 // The far end a new chain link could have, one slot per edge this object's type
