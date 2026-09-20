@@ -18,6 +18,19 @@ const STATUS_LABEL = { proposed: '提案中', confirmed: '確定', rejected: '�
 // column on that thing rather than a row joined to it.
 const statusLabel = o => STATUS_LABEL[o.status] || o.status;
 const ORIGIN_LABEL = { researcher: '研究者', agent: 'AI提案', system: 'システム', instrument: '測定機器', imported: 'インポート' };
+// Two words for saying no, and one meaning each.
+//
+//   やめる  -- abandon something already started, or decline the thing being
+//             asked about right now. The picker closes, the rename is dropped,
+//             the deletion does not happen.
+//   あとで  -- an offer that stands on its own is not being taken up now. The
+//             registration can still be done, the measurement can still be
+//             picked; nothing is being cancelled because nothing was started.
+//
+// There were four, and あとで and あとにする were nearly the same word for two
+// different meanings, which is the worst of the ways to have too many.
+//
+// 閉じる is neither: it dismisses something that has already happened.
 // allowed_relation() in src-tauri/src/domain.rs fixes the chain question ->
 // hypothesis -> prediction -> measurement -> asset, so the map is a layered DAG:
 // one column per type, left to right, and no layout search is needed.
@@ -87,7 +100,7 @@ let state = {
   mcp: null,
   mcpBusy: false,
   mcpNotice: null,
-  // True between pressing データをリセットする and answering the confirmation.
+  // True between pressing すべて消す and answering the confirmation.
   resetting: false,
   renaming: false,
   renameDraft: null,
@@ -360,7 +373,7 @@ function projectTitleHtml() {
   return `<div class="project-title renaming">
     <input id="projectNameInput" class="input project-name-input" value="${esc(state.renameDraft ?? name)}">
     <button class="btn primary small" id="saveProjectName">保存</button>
-    <button class="btn small" id="cancelProjectName">キャンセル</button>
+    <button class="btn small" id="cancelProjectName">やめる</button>
     ${state.renameError ? `<span class="error rename-error">${esc(state.renameError)}</span>` : ''}
   </div>`;
 }
@@ -834,7 +847,7 @@ function fileNoticeHtml() {
     ${measurements.map(m => `<button class="link-pick" data-link-asset="${esc(notice.assetId)}" data-measurement="${esc(m.id)}">
       <span class="rel-plus" aria-hidden="true">＋</span><span class="type">${esc(TYPE_LABEL.measurement)}</span><span class="rel-title">${esc(m.title)}</span>
     </button>`).join('')}
-    <button class="link-skip" id="dismissFileNotice">あとにする</button>
+    <button class="link-skip" id="dismissFileNotice">あとで</button>
   </div>`;
 }
 
@@ -1016,17 +1029,24 @@ function folderSectionHtml() {
 // Two presses, because the first one is the one that gets pressed by accident.
 // What it does not touch is said in both states: the fear is about the research
 // folder, and rescicle has never had anything in it to lose.
+//
+// It says 記録 and never データ. データ is the name of a registered file -- the
+// type, the nav entry, the heading over the list, データとして登録 -- so a button
+// called データをリセットする sat next to a list of データ and read as clearing
+// that list. It clears the research, the objects, the links and the whole
+// conversation. The most dangerous button in the app was the one whose name
+// could be misread as the smallest.
 function resetSectionHtml() {
   if (state.resetting) {
-    return `<div class="settings-section"><h3>すべて消す</h3>
+    return `<div class="settings-section"><h3>rescicleの記録</h3>
       <div class="error">研究・オブジェクト・つながり・会話をすべて削除します。取り消せません。</div>
       <div class="muted settings-note">研究フォルダのファイルには触れません。消えるのは、rescicleが持っている記録だけです。</div>
       <div class="actions"><button class="btn danger small" id="resetConfirm">消す</button><button class="btn small" id="resetCancel">やめる</button></div>
     </div>`;
   }
-  return `<div class="settings-section"><h3>すべて消す</h3>
-    <div class="muted settings-note">rescicleが記録したものをすべて消して、最初の画面に戻ります。研究フォルダのファイルには触れません。</div>
-    <button class="btn small settings-action" id="resetStart">データをリセットする</button>
+  return `<div class="settings-section"><h3>rescicleの記録</h3>
+    <div class="muted settings-note">研究・オブジェクト・つながり・会話。消すと最初の画面に戻ります。研究フォルダのファイルには触れません。</div>
+    <button class="btn small settings-action" id="resetStart">すべて消す</button>
   </div>`;
 }
 
