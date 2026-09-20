@@ -226,3 +226,10 @@ button.root-hint:hover { background: #eeede9; color: #5f5e58; }
    finding a research object, and this is the column research objects live in. */
 .search-box { padding: 2px 10px 12px; }
 .search-box .input { padding: 7px 9px; font-size: 12px; background: #fbfbf9; }
+
+.rel-acts { margin-left:auto; flex:0 0 auto; display:flex; gap:5px; align-items:center; }
+.rel-acts .btn.small { padding:3px 7px; font-size:11px; }
+.rel-go { margin-left:0; }
+/* Same treatment a rejected object gets: still there, still reversible, not live. */
+.rel-row.rejected { background:#faf9f7; border-style:dashed; }
+.rel-row.rejected .rel-title { color:#8a8880; text-decoration:line-through; text-decoration-color:#c9c7c0; }

@@ -262,6 +262,45 @@ impl Db {
             .ok_or_else(|| Error("object not found".into()))
     }
 
+    // A relation carries its own origin and status, so an agent's guess about how
+    // two objects connect is a proposal the researcher decides on, exactly like
+    // the objects themselves. Keeping a hypothesis but rejecting the link the
+    // agent drew from it had no way to be said before this.
+    pub fn update_relation_status(
+        &self,
+        relation_id: &str,
+        status: &str,
+        actor: &str,
+    ) -> Result<Value> {
+        if !["proposed", "confirmed", "rejected"].contains(&status) {
+            return err("invalid status");
+        }
+        let relation = query_one(
+            &self.conn,
+            "SELECT * FROM relations WHERE id=?",
+            &[&relation_id],
+        )?
+        .ok_or_else(|| Error("relation not found".into()))?;
+        self.conn.execute(
+            "UPDATE relations SET status=? WHERE id=?",
+            params![status, relation_id],
+        )?;
+        self.event(
+            &text(&relation, "project_id"),
+            &format!("relation_{status}"),
+            actor,
+            None,
+            Some(relation_id),
+            Some(json!({ "from": text(&relation, "status"), "to": status })),
+        )?;
+        query_one(
+            &self.conn,
+            "SELECT * FROM relations WHERE id=?",
+            &[&relation_id],
+        )?
+        .ok_or_else(|| Error("relation not found".into()))
+    }
+
     pub fn list_objects(&self, project_id: &str, type_: Option<&str>) -> Result<Vec<Value>> {
         match type_ {
             Some(t) => query_all(

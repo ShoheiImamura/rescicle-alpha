@@ -23,6 +23,7 @@ window.rescicle = {
   listObjects: (projectId, type) => call('objects_list', { projectId, type: type ?? null }),
   getObject: objectId => call('object_get', { objectId }),
   setObjectStatus: (objectId, status) => call('object_set_status', { objectId, status }),
+  setRelationStatus: (relationId, status) => call('relation_set_status', { relationId, status }),
   scanFiles: projectId => call('files_scan', { projectId }),
   registerAsset: (projectId, relativePath) => call('asset_register', { projectId, relativePath }),
   messages: projectId => call('messages_list', { projectId }),

@@ -234,3 +234,58 @@ fn parses_structured_output_through_a_fence() {
 
     assert!(parse_structured("no json at all").is_none());
 }
+
+// A relation carries its own status, so the researcher decides on it the same
+// way they decide on an object: keeping a hypothesis while rejecting the link
+// an agent drew from it has to be sayable.
+#[test]
+fn a_relation_can_be_decided_and_undecided() {
+    let tmp = TempDir::new("rel");
+    let research = tmp.path().join("research");
+    std::fs::create_dir_all(&research).unwrap();
+
+    let db = Db::open(&tmp.path().join("rescicle.sqlite")).unwrap();
+    let project_id = str_of(
+        &db.create_project("rel", research.to_str().unwrap()).unwrap(),
+        "id",
+    );
+    let q = db
+        .create_object(&project_id, &object("question", "Q", "researcher", "confirmed"), "researcher")
+        .unwrap();
+    let h = db
+        .create_object(&project_id, &object("hypothesis", "H", "agent", "proposed"), "agent")
+        .unwrap();
+    let relation = db
+        .create_relation(
+            &project_id,
+            &RelationInput {
+                subject_id: str_of(&h, "id"),
+                predicate: "addresses".into(),
+                object_id: str_of(&q, "id"),
+                origin: "agent".into(),
+                status: "proposed".into(),
+            },
+            "agent",
+        )
+        .unwrap();
+    let relation_id = str_of(&relation, "id");
+    assert_eq!(str_of(&relation, "status"), "proposed");
+
+    for next in ["confirmed", "rejected", "proposed"] {
+        let updated = db
+            .update_relation_status(&relation_id, next, "researcher")
+            .unwrap();
+        assert_eq!(str_of(&updated, "status"), next, "could not move to {next}");
+    }
+
+    assert!(db
+        .update_relation_status(&relation_id, "maybe", "researcher")
+        .is_err());
+    assert!(db
+        .update_relation_status("rel_missing", "confirmed", "researcher")
+        .is_err());
+
+    // The decision is recorded the way an object's is.
+    let events = db.list_relations(&project_id).unwrap();
+    assert_eq!(events.len(), 1, "no duplicate relation was created");
+}

@@ -258,7 +258,8 @@ function buildMap(objects, relations) {
   // the left; without this a hypothesis had no anchor at all and its edge was
   // drawn backwards across the question column.
   const edges = (relations || [])
-    .filter(r => byId.has(r.subject_id) && byId.has(r.object_id))
+    // A rejected relation leaves the map the way a rejected object does.
+    .filter(r => r.status !== 'rejected' && byId.has(r.subject_id) && byId.has(r.object_id))
     .map(r => {
       const behind = rank.get(byId.get(r.object_id).type) < rank.get(byId.get(r.subject_id).type);
       return {
@@ -420,10 +421,18 @@ function expansionHtml(o) {
   // leads to sits below and right. Position carries the direction, so the rows
   // need no arrows and no headings, and the nodes borrow the map's own look —
   // white, dashed while still proposed, a heavy border on the one you are on.
-  const relRow = (r, id, title, type, side) => `<div class="rel-row ${side} ${r.status === 'proposed' ? 'proposed' : ''} clickable" data-object-id="${id}" data-object-type="${esc(type)}">
+  // A relation carries its own status, so it is decided on like anything else:
+  // keeping a hypothesis while rejecting the link an agent drew from it had no
+  // way to be said.
+  const relActs = r => r.status === 'proposed'
+    ? `<button class="btn primary small" data-relation-status="confirmed" data-relation-id="${r.id}">確定</button><button class="btn danger small" data-relation-status="rejected" data-relation-id="${r.id}">却下</button>`
+    : `<button class="btn small" data-relation-status="proposed" data-relation-id="${r.id}" title="このつながりを提案中に戻す">戻す</button>`;
+
+  const relRow = (r, id, title, type, side) => `<div class="rel-row ${side} ${esc(r.status)} clickable" data-object-id="${id}" data-object-type="${esc(type)}">
       <span class="rel-pred">${esc(PREDICATE_LABEL[r.predicate] || r.predicate)}</span>
       <span class="type">${esc(TYPE_LABEL[type] || type)}</span>
       <span class="rel-title">${esc(title)}</span>
+      <span class="rel-acts">${relActs(r)}</span>
       <span class="rel-go" aria-hidden="true">›</span>
     </div>`;
 
@@ -533,6 +542,13 @@ function bind() {
     await api.setObjectStatus(id, b.dataset.status);
     await refreshWorkspace();
     if (state.selectedObject && state.selectedObject.id === id) await loadSelected(id);
+    else render();
+  }));
+  document.querySelectorAll('[data-relation-status]').forEach(b => b.addEventListener('click', async (event) => {
+    // The row itself navigates, so the button has to keep the click.
+    event.stopPropagation();
+    state.workspace = await api.setRelationStatus(b.dataset.relationId, b.dataset.relationStatus);
+    if (state.selectedObjectId) await loadSelected(state.selectedObjectId);
     else render();
   }));
   document.getElementById('renameProject')?.addEventListener('click', () => {

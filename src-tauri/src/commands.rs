@@ -161,6 +161,19 @@ pub fn object_set_status(state: State<'_, AppState>, object_id: String, status: 
 }
 
 #[tauri::command]
+pub fn relation_set_status(
+    state: State<'_, AppState>,
+    relation_id: String,
+    status: String,
+) -> Result<Value> {
+    let db = lock(&state.db)?;
+    let relation = db.update_relation_status(&relation_id, &status, "researcher")?;
+    let project_id = relation["project_id"].as_str().unwrap_or_default().to_string();
+    drop(db);
+    state.workspace(&project_id)
+}
+
+#[tauri::command]
 pub fn messages_list(state: State<'_, AppState>, project_id: String) -> Result<Vec<Value>> {
     lock(&state.db)?.list_messages(&project_id, 40)
 }
