@@ -88,8 +88,14 @@ jobs:
           # releases/latest/download only ever resolves against published ones,
           # so state outright that this release is published and is the latest.
           gh release edit "$GITHUB_REF_NAME" --draft=false --prerelease=false --latest
-          gh release view "$GITHUB_REF_NAME" --json isDraft,isLatest,url,assets \
-            | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const r=JSON.parse(s);const names=(r.assets||[]).map(a=>a.name);console.log("url:",r.url,"| draft:",r.isDraft,"| latest:",r.isLatest,"| assets:",names.join(", ")||"(none)");if(r.isDraft){console.error("release is still a draft");process.exit(1)}if(!names.includes("rescicle-Setup.exe")){console.error("rescicle-Setup.exe is missing from the release");process.exit(1)}})'
+          # `isLatest` is not a field every gh build knows, and asking for one it
+          # does not know makes gh exit non-zero and hand the empty output to
+          # node, which then fails on "Unexpected end of JSON input" and hides
+          # what the check was for. Marking the release latest is the job of the
+          # edit above; what is verified here is that it is published and that
+          # the installer is actually attached.
+          gh release view "$GITHUB_REF_NAME" --json isDraft,url,assets \
+            | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const r=JSON.parse(s);const names=(r.assets||[]).map(a=>a.name);console.log("url:",r.url,"| draft:",r.isDraft,"| assets:",names.join(", ")||"(none)");if(r.isDraft){console.error("release is still a draft");process.exit(1)}if(!names.includes("rescicle-Setup.exe")){console.error("rescicle-Setup.exe is missing from the release");process.exit(1)}})'
 
           # The check that actually matters: the link the README hands people. A
           # green job that leaves it 404ing is the whole reason this step exists.
