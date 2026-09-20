@@ -1,4 +1,4 @@
-# rescicle — first user build v0.0.6
+# rescicle — first user build v0.0.7
 
 最初の研究ユーザー向けの、ローカル完結型デスクトップMVPです。
 
@@ -201,8 +201,8 @@ cargo test --manifest-path src-tauri/Cargo.toml --test claude_cli a_real_turn --
 リリースは開発マシンからではなく、GitHub Actions（`.github/workflows/release.yml`）でビルド・公開します:
 
 1. バージョンを上げる: `package.json` / `src-tauri/Cargo.toml` / `src-tauri/tauri.conf.json` の3箇所を同じ番号に揃えてコミット。ワークフローが3つの一致を検査するので、上げ忘れはそこで落ちます。
-2. タグを打って push: `git tag v0.0.6 && git push origin main && git push origin v0.0.6`。`--tags` は不要なローカルタグまで送ってしまうので使いません。
-3. ワークフローがテストを実行し、`windows-latest` でインストーラをビルドし、`gh` で `v0.0.6` GitHub Releaseを作成して `rescicle-Setup.exe` を添付します。最後にアセットが実際に乗ったか検証するので、添付に失敗すればジョブが赤くなります。
+2. タグを打って push: `git tag v0.0.7 && git push origin main && git push origin v0.0.7`。`--tags` は不要なローカルタグまで送ってしまうので使いません。
+3. ワークフローがテストを実行し、`windows-latest` でインストーラをビルドし、`gh` で `v0.0.7` GitHub Releaseを作成して `rescicle-Setup.exe` を添付します。最後にアセットが実際に乗ったか検証するので、添付に失敗すればジョブが赤くなります。
 
 タグは `v<package.jsonのversion>` と一致している必要があります（ワークフローの guard ステップが検査します）。Tauriが出力するファイル名にはバージョンが入りますが、ワークフローが `rescicle-Setup.exe` にリネームしてから添付するため、冒頭のダウンロードリンクはバージョンを上げても更新不要です。
 
