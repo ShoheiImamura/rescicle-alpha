@@ -301,6 +301,37 @@ impl Db {
         .ok_or_else(|| Error("relation not found".into()))
     }
 
+    // A relation is structure, not a claim. A line the agent drew wrong is a
+    // mistake rather than a rejected idea, and leaving it in a `rejected` state
+    // kept it in the cards at both of its ends for good. Taking it out is safe
+    // now that the renderer can draw a chain link by hand: the way back is to
+    // draw it again. What it took part in stays -- events.relation_id carries no
+    // foreign key, so the log still says the line was there and was removed.
+    pub fn delete_relation(&self, relation_id: &str, actor: &str) -> Result<Value> {
+        let relation = query_one(
+            &self.conn,
+            "SELECT * FROM relations WHERE id=?",
+            &[&relation_id],
+        )?
+        .ok_or_else(|| Error("relation not found".into()))?;
+        self.conn
+            .execute("DELETE FROM relations WHERE id=?", params![relation_id])?;
+        self.event(
+            &text(&relation, "project_id"),
+            "relation_removed",
+            actor,
+            None,
+            Some(relation_id),
+            Some(json!({
+                "subject_id": text(&relation, "subject_id"),
+                "predicate": text(&relation, "predicate"),
+                "object_id": text(&relation, "object_id"),
+                "status": text(&relation, "status"),
+            })),
+        )?;
+        Ok(relation)
+    }
+
     pub fn list_objects(&self, project_id: &str, type_: Option<&str>) -> Result<Vec<Value>> {
         match type_ {
             Some(t) => query_all(

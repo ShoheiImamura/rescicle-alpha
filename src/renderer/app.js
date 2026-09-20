@@ -22,6 +22,17 @@ const ORIGIN_LABEL = { researcher: '研究者', agent: 'AI提案', system: 'シ�
 // hypothesis -> prediction -> measurement -> asset, so the map is a layered DAG:
 // one column per type, left to right, and no layout search is needed.
 const CHAIN = ['question', 'hypothesis', 'prediction', 'measurement', 'asset'];
+// The four edges allowed_relation() in src-tauri/src/domain.rs accepts exactly.
+// A pair of types fixes the predicate, so drawing a link by hand is a choice of
+// the other end and nothing else. The two loose predicates -- references and
+// related_to, which join any pair -- would need the predicate picked too, and
+// stay with the agent for now.
+const CHAIN_EDGES = [
+  { subject: 'hypothesis', predicate: 'addresses', object: 'question' },
+  { subject: 'hypothesis', predicate: 'predicts', object: 'prediction' },
+  { subject: 'prediction', predicate: 'tested_by', object: 'measurement' },
+  { subject: 'measurement', predicate: 'produces', object: 'asset' }
+];
 const MAP = { W: 168, H: 62, COL_GAP: 28, ROW_GAP: 14, HEAD: 26, PAD: 11, LINE: 15 };
 
 const PREDICATE_LABEL = {
@@ -36,6 +47,9 @@ let state = {
   query: '',
   selectedObjectId: null,
   selectedObject: null,
+  // The object whose link picker is open, if any. Nothing is half-entered while
+  // it is open -- picking is the whole act -- so this is all there is to keep.
+  linking: null,
   files: [],
   // The message a turn is running for. It is held here rather than left to the
   // workspace, because the workspace only comes back when the whole turn is
@@ -414,6 +428,45 @@ function cardHtml(o, { pinned = false } = {}) {
   return `<div class="card ${open ? 'open' : ''} ${o.status}">${row}<div class="card-main"><div class="type">${esc(TYPE_LABEL[o.type] || o.type)}</div><div class="card-title">${esc(o.title)}</div>${o.body ? `<div class="card-body">${esc(o.body)}</div>`:''}<div class="pills"><span class="pill ${o.status}">${esc(statusLabel(o))}</span><span class="pill ${o.origin==='agent'?'agent':''}">${esc(ORIGIN_LABEL[o.origin] || o.origin)}</span></div></div><div class="card-actions">${statusButtonsHtml(o)}</div></div>${full ? expansionHtml(full) : ''}</div>`;
 }
 
+// The far end a new chain link could have, one slot per edge this object's type
+// appears in. Which side of the edge the object sits on decides the direction,
+// and the type pair has already decided the predicate, so a slot is settled the
+// moment the other object is picked.
+function linkSlots(o, ends) {
+  const taken = new Set(ends.map(e => `${e.r.predicate}|${e.id}`));
+  const pool = (state.workspace.objects || []).filter(c => c.id !== o.id && c.status !== 'rejected');
+  return CHAIN_EDGES
+    .filter(e => e.subject === o.type || e.object === o.type)
+    .map(e => {
+      const asSubject = e.subject === o.type;
+      const otherType = asSubject ? e.object : e.subject;
+      return {
+        predicate: e.predicate,
+        asSubject,
+        otherType,
+        // A link that is already drawn comes back out of create_relation
+        // untouched, so offering it again would be a row that does nothing. That
+        // includes one left rejected from before, which its own row takes back
+        // or removes.
+        candidates: pool.filter(c => c.type === otherType && !taken.has(`${e.predicate}|${c.id}`))
+      };
+    })
+    .filter(slot => slot.candidates.length);
+}
+
+// A candidate is shown as the row it would become, in the place it would take,
+// and choosing it is what draws the link: there is no field to fill in and no
+// verb to press afterwards, because the pair of types has already named the
+// only predicate that could join them.
+function candidateRowHtml(slot, c, side) {
+  return `<div class="rel-row candidate ${side}" data-link-add="${esc(c.id)}" data-link-predicate="${esc(slot.predicate)}" data-link-subject="${slot.asSubject ? 'self' : 'picked'}">
+      <span class="rel-pred">${esc(PREDICATE_LABEL[slot.predicate] || slot.predicate)}</span>
+      <span class="type">${esc(TYPE_LABEL[slot.otherType] || slot.otherType)}</span>
+      <span class="rel-title">${esc(c.title)}</span>
+      <span class="rel-go" aria-hidden="true">＋</span>
+    </div>`;
+}
+
 // The open half of a card: everything the old detail page added on top of what
 // the collapsed card already shows.
 function expansionHtml(o) {
@@ -426,12 +479,21 @@ function expansionHtml(o) {
   // leads to sits below and right. Position carries the direction, so the rows
   // need no arrows and no headings, and the nodes borrow the map's own look —
   // white, dashed while still proposed, a heavy border on the one you are on.
-  // A relation carries its own status, so it is decided on like anything else:
-  // keeping a hypothesis while rejecting the link an agent drew from it had no
-  // way to be said.
-  const relActs = r => r.status === 'proposed'
-    ? `<button class="btn primary small" data-relation-status="confirmed" data-relation-id="${r.id}">確定</button><button class="btn danger small" data-relation-status="rejected" data-relation-id="${r.id}">却下</button>`
-    : `<button class="btn small" data-relation-status="proposed" data-relation-id="${r.id}" title="このつながりを提案中に戻す">戻す</button>`;
+  // A relation is decided on like anything else -- keeping a hypothesis while
+  // turning down the link an agent drew from it has to be sayable -- but saying
+  // no to a line removes it rather than parking it in a rejected state. A line
+  // is structure, not a claim, so a guess the researcher never asked for has
+  // nothing to say once it has been turned down, and leaving it as a struck-out
+  // row put the agent's mistake in both of the cards it touched for good.
+  // Nothing is lost by taking it out, because ＋つなぐ draws it again.
+  const relActs = r => {
+    const drop = `<button class="btn danger small" data-relation-drop="${r.id}" title="このつながりを外す">はずす</button>`;
+    if (r.status === 'proposed') return `<button class="btn primary small" data-relation-status="confirmed" data-relation-id="${r.id}">確定</button>${drop}`;
+    // Links rejected before they could be removed are still in the database.
+    // The state is out of the vocabulary now, so give those rows both ways out.
+    if (r.status === 'rejected') return `<button class="btn small" data-relation-status="proposed" data-relation-id="${r.id}" title="このつながりを提案中に戻す">戻す</button>${drop}`;
+    return drop;
+  };
 
   const relRow = (r, id, title, type, side) => `<div class="rel-row ${side} ${esc(r.status)} clickable" data-object-id="${id}" data-object-type="${esc(type)}">
       <span class="rel-pred">${esc(PREDICATE_LABEL[r.predicate] || r.predicate)}</span>
@@ -458,13 +520,31 @@ function expansionHtml(o) {
   const downstream = ends
     .filter(e => (rank.get(e.type) ?? 99) >= mine)
     .map(e => relRow(e.r, e.id, e.title, e.type, 'down'));
+  // Drawing a link is rare next to reading what is already there, so at rest it
+  // is one faint line under the map and the card looks as it always did. Opened,
+  // the candidates fall into the column the finished link would land in, because
+  // position is what says which way the chain runs.
+  const slots = linkSlots(o, ends);
+  const picking = state.linking === o.id;
+  if (picking) {
+    for (const slot of slots) {
+      const up = (rank.get(slot.otherType) ?? 99) < mine;
+      for (const c of slot.candidates) {
+        (up ? upstream : downstream).push(candidateRowHtml(slot, c, up ? 'up' : 'down'));
+      }
+    }
+  }
   const graph = upstream.length || downstream.length
     ? `<div class="rel-map">${upstream.join('')}<div class="rel-here"><span class="type">${esc(TYPE_LABEL[o.type] || o.type)}</span></div>${downstream.join('')}</div>`
     : '<div class="expand-empty">まだつながりはありません。</div>';
+  const link = slots.length
+    ? `<button class="link-add${picking ? ' open' : ''}" data-link-toggle="${esc(o.id)}">${picking ? 'やめる' : '＋ つなぐ'}</button>`
+    : '';
 
   return `<div class="card-expand">
     <div class="expand-head">つながり</div>
     ${graph}
+    ${link}
     ${o.type==='asset' && o.asset ? `<div class="expand-head">ローカルファイル</div><div class="card-body">${esc(o.asset.relative_path)}
 ${fmtSize(o.asset.size_bytes)} · ${esc(o.asset.modified_at)}</div>` : ''}
   </div>`;
@@ -563,6 +643,7 @@ function bind() {
   document.querySelectorAll('[data-object-id]').forEach(el => el.addEventListener('click', event => {
     event.stopPropagation();
     const id = el.dataset.objectId;
+    state.linking = null;
     if (id === state.selectedObjectId) { state.selectedObjectId = null; state.selectedObject = null; render(); return; }
     // A relation can point at another type, which the current list would not show.
     const type = el.dataset.objectType;
@@ -584,6 +665,46 @@ function bind() {
     state.workspace = await api.setRelationStatus(b.dataset.relationId, b.dataset.relationStatus);
     if (state.selectedObjectId) await loadSelected(state.selectedObjectId);
     else render();
+  }));
+  document.querySelectorAll('[data-relation-drop]').forEach(b => b.addEventListener('click', async (event) => {
+    // The row itself navigates, so the button has to keep the click.
+    event.stopPropagation();
+    state.error = null;
+    try {
+      state.workspace = await api.deleteRelation(b.dataset.relationDrop);
+      if (state.selectedObjectId) await loadSelected(state.selectedObjectId);
+      else render();
+    } catch (e) {
+      state.error = errText(e);
+      render();
+    }
+  }));
+  document.querySelectorAll('[data-link-toggle]').forEach(b => b.addEventListener('click', event => {
+    event.stopPropagation();
+    const id = b.dataset.linkToggle;
+    state.linking = state.linking === id ? null : id;
+    state.error = null;
+    render();
+  }));
+  document.querySelectorAll('[data-link-add]').forEach(row => row.addEventListener('click', async (event) => {
+    event.stopPropagation();
+    const id = state.selectedObject?.id;
+    if (!id) return;
+    state.error = null;
+    try {
+      // Which end this object is on was settled when the slot was built; the
+      // Rust side takes a subject and an object, not a direction.
+      const other = row.dataset.linkAdd;
+      const [subjectId, objectId] = row.dataset.linkSubject === 'self' ? [id, other] : [other, id];
+      state.workspace = await api.createRelation(state.workspace.project.id, subjectId, row.dataset.linkPredicate, objectId);
+      // The link is drawn and is now a row of its own. Leaving the picker open
+      // over it would hide the one thing the click was for.
+      state.linking = null;
+      await loadSelected(id);
+    } catch (e) {
+      state.error = errText(e);
+      render();
+    }
   }));
   document.getElementById('renameProject')?.addEventListener('click', () => {
     state.renaming = true; state.renameDraft = state.workspace.project.name; state.renameError = null; render();

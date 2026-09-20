@@ -290,6 +290,56 @@ fn a_relation_can_be_decided_and_undecided() {
     assert_eq!(events.len(), 1, "no duplicate relation was created");
 }
 
+// Saying no to a line takes it out instead of leaving it struck through in the
+// cards at both of its ends. What makes that safe is that the same link can be
+// drawn again, so the researcher is never stuck with an agent's guess or
+// without it.
+#[test]
+fn a_relation_can_be_removed_and_drawn_again() {
+    let tmp = TempDir::new("rel-drop");
+    let research = tmp.path().join("research");
+    std::fs::create_dir_all(&research).unwrap();
+
+    let db = Db::open(&tmp.path().join("rescicle.sqlite")).unwrap();
+    let project_id = str_of(
+        &db.create_project("rel-drop", research.to_str().unwrap()).unwrap(),
+        "id",
+    );
+    let q = db
+        .create_object(&project_id, &object("question", "Q", "researcher", "confirmed"), "researcher")
+        .unwrap();
+    let h = db
+        .create_object(&project_id, &object("hypothesis", "H", "agent", "proposed"), "agent")
+        .unwrap();
+    let link = || RelationInput {
+        subject_id: str_of(&h, "id"),
+        predicate: "addresses".into(),
+        object_id: str_of(&q, "id"),
+        origin: "agent".into(),
+        status: "proposed".into(),
+    };
+
+    let relation_id = str_of(&db.create_relation(&project_id, &link(), "agent").unwrap(), "id");
+    db.delete_relation(&relation_id, "researcher").unwrap();
+    assert!(
+        db.list_relations(&project_id).unwrap().is_empty(),
+        "the line the agent drew is gone, not struck through"
+    );
+    assert!(
+        db.delete_relation(&relation_id, "researcher").is_err(),
+        "a line that is already gone cannot be removed twice"
+    );
+
+    // Deciding it again is the way back, and it is a new line rather than the
+    // old one coming back out of create_relation's duplicate check.
+    let again = str_of(
+        &db.create_relation(&project_id, &link(), "researcher").unwrap(),
+        "id",
+    );
+    assert_ne!(again, relation_id);
+    assert_eq!(db.list_relations(&project_id).unwrap().len(), 1);
+}
+
 // Nothing under the research folder is opened without the researcher having
 // said so, and what travels is an excerpt, not the file.
 #[test]

@@ -24,6 +24,9 @@ window.rescicle = {
   getObject: objectId => call('object_get', { objectId }),
   setObjectStatus: (objectId, status) => call('object_set_status', { objectId, status }),
   setRelationStatus: (relationId, status) => call('relation_set_status', { relationId, status }),
+  createRelation: (projectId, subjectId, predicate, objectId) =>
+    call('relation_create', { projectId, subjectId, predicate, objectId }),
+  deleteRelation: relationId => call('relation_delete', { relationId }),
   scanFiles: projectId => call('files_scan', { projectId }),
   registerAsset: (projectId, relativePath) => call('asset_register', { projectId, relativePath }),
   setFileShared: (projectId, relativePath, shared) =>

@@ -1,6 +1,7 @@
 use crate::agent::{apply_operations, build_prompt};
 use crate::claude_agent::ClaudeAgent;
 use crate::db::Db;
+use crate::domain::RelationInput;
 use crate::error::{err, Error, Result};
 use crate::files::{resolve_project_file, scan_files};
 use crate::settings::Settings;
@@ -169,6 +170,42 @@ pub fn relation_set_status(
     let db = lock(&state.db)?;
     let relation = db.update_relation_status(&relation_id, &status, "researcher")?;
     let project_id = relation["project_id"].as_str().unwrap_or_default().to_string();
+    drop(db);
+    state.workspace(&project_id)
+}
+
+#[tauri::command]
+pub fn relation_delete(state: State<'_, AppState>, relation_id: String) -> Result<Value> {
+    let db = lock(&state.db)?;
+    let relation = db.delete_relation(&relation_id, "researcher")?;
+    let project_id = relation["project_id"].as_str().unwrap_or_default().to_string();
+    drop(db);
+    state.workspace(&project_id)
+}
+
+// The renderer only offers the four chain edges from domain.rs:allowed_relation(),
+// where a pair of types fixes the predicate, so it sends no origin or status: a
+// link the researcher drew by hand is theirs and is already decided.
+#[tauri::command]
+pub fn relation_create(
+    state: State<'_, AppState>,
+    project_id: String,
+    subject_id: String,
+    predicate: String,
+    object_id: String,
+) -> Result<Value> {
+    let db = lock(&state.db)?;
+    db.create_relation(
+        &project_id,
+        &RelationInput {
+            subject_id,
+            predicate,
+            object_id,
+            origin: "researcher".into(),
+            status: "confirmed".into(),
+        },
+        "researcher",
+    )?;
     drop(db);
     state.workspace(&project_id)
 }
