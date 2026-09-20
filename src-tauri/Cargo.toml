@@ -1,6 +1,6 @@
 [package]
 name = "rescicle"
-version = "0.0.9"
+version = "0.0.10"
 description = "Local-first research copilot powered by the user's existing Claude Code environment."
 authors = ["rescicle project"]
 edition = "2021"

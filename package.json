@@ -1,7 +1,7 @@
 {
   "name": "rescicle",
   "productName": "rescicle",
-  "version": "0.0.9",
+  "version": "0.0.10",
   "description": "Local-first research copilot powered by the user's existing Claude Code environment.",
   "author": "rescicle project",
   "license": "UNLICENSED",

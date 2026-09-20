@@ -3042,7 +3042,7 @@ dependencies = [
 
 [[package]]
 name = "rescicle"
-version = "0.0.9"
+version = "0.0.10"
 dependencies = [
  "chrono",
  "dirs 7.0.0",
