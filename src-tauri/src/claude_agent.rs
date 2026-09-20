@@ -376,7 +376,7 @@ mod tests {
         Run { code, out: out.into(), err: err.into() }
     }
 
-    // What the old scripts/claude-agent-test.cjs pinned down. These flags are the
+    // These flags are the
     // contract with the CLI, and a silent change to any of them turns a reasoning
     // turn into something that can touch the researcher's machine.
     #[test]

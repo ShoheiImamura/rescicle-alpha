@@ -64,10 +64,10 @@ fn arg_str(args: &Value, key: &str) -> String {
 }
 
 pub fn call_tool(db: &Db, data_dir: &Path, name: &str, args: &Value) -> Result<Value> {
-    // mcp-server.cjs captured the current project once, when Claude Code spawned the
-    // server, so switching projects in the app left this process pointed at the old
-    // one for its whole life. settings.json is rewritten on every switch, so reading
-    // it per call is what makes the secondary path follow the app.
+    // The previous implementation captured the current project once, when Claude
+    // Code spawned the server, so switching projects in the app left this process
+    // on the old one for its whole life. settings.json is rewritten on every
+    // switch, so reading it per call is what makes the secondary path follow.
     let settings = Settings::load(data_dir);
     let Some(project_id) = settings.current_project_id else {
         return err("No rescicle project is currently open. Open a project in the rescicle app first.");

@@ -20,7 +20,7 @@ fn now() -> String {
     iso(std::time::SystemTime::now())
 }
 
-// Mirrors plain() in db.cjs: every row reaches the renderer as a flat object whose
+// Every row reaches the renderer as a flat object whose
 // keys are the column names, because src/renderer/app.js reads them directly.
 fn row_to_value(row: &Row<'_>) -> rusqlite::Result<Value> {
     let mut map = Map::new();

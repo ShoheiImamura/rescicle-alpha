@@ -191,7 +191,7 @@ pub fn apply_operations(
                     )
                 })
             }
-            // agent.cjs silently ignores an unknown op rather than reporting it;
+            // An unknown op is passed over rather than reported;
             // keeping that means a future op name cannot break an older build.
             _ => continue,
         };

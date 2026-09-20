@@ -2,7 +2,7 @@ const api = window.rescicle;
 const root = document.getElementById('app');
 
 // Every user-facing label is Japanese; the English keys stay as the domain
-// vocabulary in the database and in domain.cjs.
+// vocabulary in the database and in src-tauri/src/domain.rs.
 const TYPE_LABEL = {
   question: '問い',
   hypothesis: '仮説',
@@ -13,9 +13,9 @@ const TYPE_LABEL = {
 };
 const STATUS_LABEL = { proposed: '提案中', confirmed: '確定', rejected: '却下' };
 const ORIGIN_LABEL = { researcher: '研究者', agent: 'AI提案', system: 'システム', instrument: '測定機器', imported: 'インポート' };
-// allowedRelation() in domain.cjs fixes the chain question -> hypothesis ->
-// prediction -> measurement -> asset, so the map is a layered DAG: one column per
-// type, left to right, and no layout search is needed.
+// allowed_relation() in src-tauri/src/domain.rs fixes the chain question ->
+// hypothesis -> prediction -> measurement -> asset, so the map is a layered DAG:
+// one column per type, left to right, and no layout search is needed.
 const CHAIN = ['question', 'hypothesis', 'prediction', 'measurement', 'asset'];
 const MAP = { W: 168, H: 62, COL_GAP: 38, ROW_GAP: 14, HEAD: 26, PAD: 11, LINE: 15 };
 
@@ -50,9 +50,9 @@ let state = {
 };
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-// ipcRenderer.invoke rethrows as "Error invoking remote method 'x': Error: …";
-// show what the main process actually said, not the plumbing around it.
-const errText = (e) => String(e?.message ?? e).replace(new RegExp("^Error invoking remote method '[^']*': ?(Error: ?)?"), "");
+// bridge.js wraps every rejection in an Error, so the message is already what
+// the Rust side said rather than anything the transport added to it.
+const errText = (e) => String(e?.message ?? e);
 const fmtSize = (n) => n < 1024 ? `${n} B` : n < 1024*1024 ? `${(n/1024).toFixed(1)} KB` : `${(n/1024/1024).toFixed(1)} MB`;
 const fmtElapsed = (ms) => {
   const s = Math.floor(ms / 1000);
@@ -146,7 +146,7 @@ function projectTitleHtml() {
 
 function overviewHtml() {
   const objects = state.workspace.objects || [];
-  // Notes sit outside the chain that allowedRelation() permits, so they are never
+  // Notes sit outside the chain that allowed_relation() permits, so they are never
   // drawn on the map. List them under it rather than letting them disappear.
   const offMap = objects.filter(o => o.status !== 'rejected' && !CHAIN.includes(o.type));
   return `<div class="page-title"><h1>${esc(state.workspace.project.name)}</h1></div>

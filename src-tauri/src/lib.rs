@@ -1,4 +1,4 @@
-// Public so tests/ can drive the same entry points the old scripts/*.cjs tests did.
+// Public so the integration tests under tests/ can drive these directly.
 pub mod agent;
 pub mod claude_agent;
 pub mod commands;

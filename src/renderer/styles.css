@@ -152,7 +152,7 @@ button.project-title:hover { background: #eeede9; }
    and triaging them one detail page at a time is the slowest path through the app. */
 .card-actions { flex: 0 0 auto; display: flex; gap: 6px; align-items: flex-start; }
 
-/* Overview map. The relation set is a layered DAG fixed by allowedRelation(), so
+/* Overview map. The relation set is a layered DAG fixed by allowed_relation(), so
    the layout is deterministic left to right and needs no force simulation. */
 .map-scroll { overflow-x: auto; padding-bottom: 6px; }
 .map { display: block; }

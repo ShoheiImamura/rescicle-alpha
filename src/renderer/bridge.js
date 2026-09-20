@@ -1,6 +1,6 @@
-// Stands in for the old preload.cjs. src/renderer/app.js talks to window.rescicle
-// and knows nothing about the runtime underneath, so keeping the same shape here is
-// what let the renderer move from Electron to Tauri unchanged.
+// Everything the renderer is allowed to ask the Rust side for. app.js talks to
+// window.rescicle and nothing else, so the surface it sees stays the same shape
+// whatever is underneath; that is what let it move runtimes unchanged.
 const { invoke } = window.__TAURI__.core;
 
 // Tauri rejects with whatever the command serialised, and crate::error::Error

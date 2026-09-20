@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-// Electron kept this in app.getPath('userData'), which on Windows is
+// The Electron build kept this in app.getPath('userData'), which on Windows is
 // %AppData%\rescicle. The port reads and writes the same folder so an existing
 // install keeps its database, its settings and its agent workspace.
 pub fn data_dir() -> PathBuf {
@@ -37,7 +37,7 @@ pub struct Settings {
 }
 
 impl Settings {
-    // A missing or corrupt file is not an error: main.cjs swallowed both and started
+    // A missing or corrupt file is not an error: the app starts
     // with an empty state, and losing a session id only costs one fresh Claude turn.
     pub fn load(data_dir: &Path) -> Self {
         std::fs::read_to_string(settings_path(data_dir))

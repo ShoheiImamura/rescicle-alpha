@@ -1,4 +1,4 @@
-// Port of scripts/smoke-test.cjs. Same fixtures, same assertions, so a behaviour
+// The same fixtures and assertions the Electron build was held to, so a behaviour
 // change between the Electron build and this one shows up here rather than on a
 // researcher's machine.
 use rescicle_lib::agent::{apply_operations, Operation};

@@ -1,4 +1,4 @@
-// Port of scripts/mcp-protocol-test.cjs: the secondary path, where Claude Code
+// The secondary path, where Claude Code
 // reaches rescicle through the local MCP server instead of the other way round.
 use rescicle_lib::db::Db;
 use rescicle_lib::mcp::call_tool;
