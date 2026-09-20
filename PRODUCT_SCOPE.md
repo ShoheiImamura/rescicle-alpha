@@ -1,4 +1,4 @@
-# rescicle first-user scope — v0.0.7
+# rescicle first-user scope — v0.0.8
 
 ## Product hypothesis
 
