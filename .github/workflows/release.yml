@@ -15,7 +15,12 @@ jobs:
   windows:
     runs-on: windows-latest
     steps:
+      # fetch-depth: 0 so the annotated tag object comes with it. The release
+      # notes are read out of the tag's own message below, and a shallow
+      # checkout can hand over the ref without the object that carries it.
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-node@v7
         with:
@@ -78,11 +83,30 @@ jobs:
           set -euo pipefail
           exe="rescicle-Setup.exe"
           test -f "$exe"
+          # The release body is the tag's own message. --generate-notes produced
+          # "Full Changelog: v0.0.8...v0.0.9" and nothing else, so what changed
+          # was written at tagging time and then shown to nobody -- the page
+          # anyone actually lands on said less than the tag did. Whoever cuts the
+          # release already writes it once; this is that text reaching the place
+          # it was written for.
+          #
+          # Subject and body are taken separately, so a tag whose first line is
+          # just the version does not print it twice, as the heading and again as
+          # the opening line of the notes. A lightweight tag has neither, and the
+          # fallbacks below cover it.
+          title=$(git tag -l --format='%(contents:subject)' "$GITHUB_REF_NAME")
+          notes=$(git tag -l --format='%(contents:body)' "$GITHUB_REF_NAME")
+          [ -n "$title" ] || title="$GITHUB_REF_NAME"
+          if [ -z "${notes//[[:space:]]/}" ]; then
+            notes="Full Changelog: https://github.com/${GITHUB_REPOSITORY}/commits/${GITHUB_REF_NAME}"
+          fi
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
             gh release upload "$GITHUB_REF_NAME" "$exe" --clobber
+            # Re-run over an existing release: the notes are refreshed too, so a
+            # retag after fixing the message actually changes what is published.
+            gh release edit "$GITHUB_REF_NAME" --title "$title" --notes "$notes"
           else
-            gh release create "$GITHUB_REF_NAME" "$exe" \
-              --title "$GITHUB_REF_NAME" --generate-notes
+            gh release create "$GITHUB_REF_NAME" "$exe" --title "$title" --notes "$notes"
           fi
           # A draft release is invisible to anyone who is not signed in, and
           # releases/latest/download only ever resolves against published ones,
