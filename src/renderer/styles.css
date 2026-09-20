@@ -205,3 +205,8 @@ button.root-hint { border: 0; background: transparent; font: inherit; font-size:
 button.root-hint:hover { background: #eeede9; color: #5f5e58; }
 .notice { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; padding: 11px 13px; border: 1px solid #e3ddc9; background: #fbf8ee; border-radius: 10px; font-size: 12px; color: #6a6448; }
 .notice span { flex: 1; }
+
+/* Search sits above the type list rather than in the top bar: it is a way of
+   finding a research object, and this is the column research objects live in. */
+.search-box { padding: 2px 10px 12px; }
+.search-box .input { padding: 7px 9px; font-size: 12px; background: #fbfbf9; }

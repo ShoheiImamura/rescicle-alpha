@@ -27,6 +27,8 @@ let state = {
   bootstrap: null,
   workspace: null,
   currentType: 'overview',
+  // Non-empty replaces the centre column with results across every type.
+  query: '',
   selectedObjectId: null,
   selectedObject: null,
   files: [],
@@ -69,10 +71,21 @@ async function boot() {
   // Bound once on the document rather than in bind(), which runs on every
   // render and would stack a new listener each time.
   document.addEventListener('keydown', event => {
+    // Ctrl+F is where anyone looks for search first. The webview's own find bar
+    // is not reachable, so this is the only thing the shortcut could mean.
+    if ((event.ctrlKey || event.metaKey) && (event.key === 'f' || event.key === 'F')) {
+      const box = document.getElementById('searchInput');
+      if (!box) return;
+      event.preventDefault();
+      box.focus();
+      box.select();
+      return;
+    }
     if (event.key !== 'Escape') return;
     // The rename field binds its own Escape; let that one win.
     if (state.renaming) return;
     if (state.modal) { closeModal(); return; }
+    if (state.query) { state.query = ''; render(); return; }
     if (state.selectedObjectId) {
       state.selectedObjectId = null;
       state.selectedObject = null;
@@ -101,10 +114,26 @@ async function boot() {
 
 function render() {
   const scrollTop = document.querySelector('.content')?.scrollTop ?? 0;
+  // The whole tree is rebuilt, so a field being typed into loses focus and the
+  // caret jumps to the start on the next keystroke. Put both back.
+  const focused = document.activeElement;
+  const focusedId = focused?.id;
+  const caret = focused?.selectionStart ?? null;
+
   root.innerHTML = state.workspace ? workspaceHtml() : onboardingHtml();
   bind();
+
   const content = document.querySelector('.content');
   if (content) content.scrollTop = scrollTop;
+  if (focusedId) {
+    const again = document.getElementById(focusedId);
+    if (again) {
+      again.focus();
+      if (caret !== null && again.setSelectionRange) {
+        try { again.setSelectionRange(caret, caret); } catch { /* not a text field */ }
+      }
+    }
+  }
   if (state.selectedObjectId && !state.selectedObject) loadSelected(state.selectedObjectId);
 }
 
@@ -144,10 +173,12 @@ function sidebarHtml() {
     counts[o.type] = (counts[o.type] || 0) + 1;
   }
   const nav = [['overview','マップ',''], ...Object.entries(TYPE_LABEL).map(([k,label]) => [k,label,counts[k] || 0]), ['files','ファイル','']];
-  return `<div class="nav-title">研究オブジェクト</div>${nav.map(([id,label,count]) => `<button class="nav-btn ${state.currentType===id?'active':''}" data-nav="${id}"><span>${esc(label)}</span><span class="count">${count}</span></button>`).join('')}`;
+  return `<div class="search-box"><input id="searchInput" class="input" type="search" placeholder="検索（Ctrl+F）" value="${esc(state.query)}"></div>
+    <div class="nav-title">研究オブジェクト</div>${nav.map(([id,label,count]) => `<button class="nav-btn ${state.currentType===id?'active':''}" data-nav="${id}"><span>${esc(label)}</span><span class="count">${count}</span></button>`).join('')}`;
 }
 
 function contentHtml() {
+  if (state.query.trim()) return searchHtml();
   if (state.currentType === 'overview') return overviewHtml();
   if (state.currentType === 'files') return filesHtml();
   return objectListHtml(state.currentType);
@@ -312,6 +343,22 @@ function mapHtml() {
     <div class="map-legend"><span>実線 = 確定</span><span>破線 = 提案中（AI提案）</span><span>ノードをクリックすると詳細が開きます</span></div>`;
 }
 
+// Searches across every type at once, including rejected objects: the reason to
+// go looking for something is often that it is no longer where you expect it.
+// Results keep the chain's order, so a question comes before the hypotheses
+// under it rather than whatever order they were last touched in.
+function searchHtml() {
+  const needle = state.query.trim().toLowerCase();
+  const order = new Map([...CHAIN, 'note'].map((type, i) => [type, i]));
+  const hits = (state.workspace.objects || [])
+    .filter(o => `${o.title} ${o.body || ''}`.toLowerCase().includes(needle))
+    .sort((a, b) => (order.get(a.type) ?? 99) - (order.get(b.type) ?? 99));
+  return `<div class="page-title"><h1>検索</h1><span class="muted">「${esc(state.query.trim())}」に ${hits.length}件</span></div>${
+    hits.length
+      ? `<div class="object-grid">${hits.map(o => cardHtml(o)).join('')}</div>`
+      : '<div class="empty">一致する研究オブジェクトはありません。</div>'}`;
+}
+
 function objectListHtml(type) {
   const label = TYPE_LABEL[type] || type;
   const all = (state.workspace.objects || []).filter(o => o.type === type);
@@ -424,7 +471,8 @@ function bind() {
     state.error = null; render();
   });
   document.querySelectorAll('[data-nav]').forEach(b => b.addEventListener('click', async () => {
-    state.currentType = b.dataset.nav; state.selectedObjectId = null; state.selectedObject = null; state.error = null;
+    // Leaving the query set would show results while the nav looked switched.
+    state.currentType = b.dataset.nav; state.query = ""; state.selectedObjectId = null; state.selectedObject = null; state.error = null;
     if (state.currentType === 'files' && !state.files.length) state.files = await api.scanFiles(state.workspace.project.id);
     render();
   }));
@@ -471,6 +519,7 @@ function bind() {
   // Only the backdrop itself dismisses; a click that started inside the panel
   // must not close what the researcher is reading.
   document.getElementById('modalWrap')?.addEventListener('click', event => { if (event.target.id === 'modalWrap') closeModal(); });
+  document.getElementById('searchInput')?.addEventListener('input', event => { state.query = event.target.value; render(); });
   document.getElementById('clearTarget')?.addEventListener('click', () => { state.selectedObjectId = null; state.selectedObject = null; render(); });
   document.getElementById('refreshAgent')?.addEventListener('click', refreshAgent);
   document.getElementById('copyClaudeSetup')?.addEventListener('click', copyClaudeSetup);
