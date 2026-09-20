@@ -498,6 +498,30 @@ function linkSlots(o, ends) {
 // a line the agent drew and nobody has decided on yet, which is a line that
 // exists; a candidate is one that does not. It carries a ＋ and no frame until
 // the pointer is on it.
+// A note is not on the chain, so nothing it is joined to belongs in the picture
+// the chain draws -- and because it was never in that picture, giving it a block
+// of its own costs no new geometry. That is the difference from a relation
+// between two hypotheses, which would have had to break the one the map is built
+// on. Notes attach through references, and being a note fixes the predicate the
+// way a pair of chain types does, so this is the same one-click pick.
+function noteCounterparts(o) {
+  const note = o.type === 'note';
+  return (state.workspace.objects || []).filter(c =>
+    c.id !== o.id && c.status !== 'rejected' && (note ? c.type !== 'note' : c.type === 'note'));
+}
+
+function noteBlockHtml(o, noted, picking, relRow) {
+  const note = o.type === 'note';
+  const taken = new Set(noted.map(e => e.id));
+  const candidates = picking ? noteCounterparts(o).filter(c => !taken.has(c.id)) : [];
+  if (!noted.length && !candidates.length) return '';
+  const rows = noted
+    .map(e => relRow(e.r, e.id, e.title, e.type, 'note'))
+    .concat(candidates.map(c =>
+      candidateRowHtml({ predicate: 'references', asSubject: note, otherType: c.type }, c, 'note')));
+  return `<div class="expand-head">${note ? '何についてのメモか' : 'メモ'}</div><div class="rel-map">${rows.join('')}</div>`;
+}
+
 function candidateRowHtml(slot, c, side) {
   return `<div class="rel-row candidate ${side}" data-link-add="${esc(c.id)}" data-link-predicate="${esc(slot.predicate)}" data-link-subject="${slot.asSubject ? 'self' : 'picked'}">
       <span class="rel-plus" aria-hidden="true">＋</span>
@@ -557,17 +581,22 @@ function expansionHtml(o) {
     ...(o.incoming || []).map(r => ({ r, id: r.subject_id, title: r.subject_title, type: r.subject_type })),
     ...(o.outgoing || []).map(r => ({ r, id: r.object_id, title: r.object_title, type: r.object_type }))
   ];
-  const upstream = ends
+  // Rank puts a note at the end of everything, so a note hung on a hypothesis
+  // used to read as downstream of it -- further along a chain it is not on.
+  const involvesNote = e => o.type === 'note' || e.type === 'note';
+  const noted = ends.filter(involvesNote);
+  const chained = ends.filter(e => !involvesNote(e));
+  const upstream = chained
     .filter(e => (rank.get(e.type) ?? 99) < mine)
     .map(e => relRow(e.r, e.id, e.title, e.type, 'up'));
-  const downstream = ends
+  const downstream = chained
     .filter(e => (rank.get(e.type) ?? 99) >= mine)
     .map(e => relRow(e.r, e.id, e.title, e.type, 'down'));
   // Drawing a link is rare next to reading what is already there, so at rest it
   // is one faint line under the map and the card looks as it always did. Opened,
   // the candidates fall into the column the finished link would land in, because
   // position is what says which way the chain runs.
-  const slots = linkSlots(o, ends);
+  const slots = linkSlots(o, chained);
   const picking = state.linking === o.id;
   if (picking) {
     for (const slot of slots) {
@@ -580,13 +609,17 @@ function expansionHtml(o) {
   const graph = upstream.length || downstream.length
     ? `<div class="rel-map">${upstream.join('')}<div class="rel-here"><span class="type">${esc(TYPE_LABEL[o.type] || o.type)}</span></div>${downstream.join('')}</div>`
     : '<div class="expand-empty">まだつながりはありません。</div>';
-  const link = slots.length
+  const noteBlock = noteBlockHtml(o, noted, picking, relRow);
+  // One toggle for both blocks: the question it answers is "what else can I
+  // attach here", and a note is one of the answers.
+  const attachable = slots.length || noteCounterparts(o).length > noted.length;
+  const link = attachable
     ? `<button class="link-add${picking ? ' open' : ''}" data-link-toggle="${esc(o.id)}">${picking ? 'やめる' : '＋ つなぐ'}</button>`
     : '';
 
   return `<div class="card-expand">
-    <div class="expand-head">つながり</div>
-    ${graph}
+    ${o.type === 'note' ? '' : `<div class="expand-head">つながり</div>${graph}`}
+    ${noteBlock}
     ${link}
     ${o.type==='asset' && o.asset ? `<div class="expand-head">ローカルファイル</div><div class="card-body">${esc(o.asset.relative_path)}
 ${fmtSize(o.asset.size_bytes)} · ${esc(o.asset.modified_at)}</div>` : ''}

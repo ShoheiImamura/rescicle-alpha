@@ -253,6 +253,11 @@ button.root-hint:hover { background: #eeede9; color: #5f5e58; }
 /* Not a line yet, so no frame and none of the dashed border that means a line
    the agent drew and nobody has decided on. It takes its frame under the
    pointer, which is the shape it is about to become. */
+/* A note sits beside the chain, not on it, so its rows take no indent and no
+   connector: there is no column for them to be in. */
+.rel-row.note { margin-left:0; width:100%; }
+.card-expand .expand-head + .rel-map { margin-bottom:2px; }
+.card-expand .rel-map + .expand-head { margin-top:11px; }
 .rel-row.candidate { border-color:transparent; background:none; }
 .rel-row.candidate .rel-title { color:#6b6a64; font-weight:500; }
 .rel-plus { flex:0 0 auto; color:#b5b3ab; font-size:14px; line-height:1; }
