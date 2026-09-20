@@ -371,6 +371,42 @@ impl ClaudeAgent {
         .collect()
     }
 
+    // One question, answered once, with nothing carried in or out. A fresh session
+    // id every time, so what is asked here never joins the research conversation
+    // and never has to be resumed; its own system prompt, because the caller is not
+    // asking for the research schema; and an empty --allowedTools, because naming
+    // something is not a reason to reach the web.
+    //
+    // --output-format json rather than the streamed form: there is no partial worth
+    // showing for an answer that is one line, and run() takes the result event from
+    // either shape.
+    fn one_shot_args(system: &str, session_id: &str) -> Vec<String> {
+        [
+            "-p",
+            "--output-format",
+            "json",
+            "--system-prompt",
+            system,
+            "--allowedTools",
+            "",
+            "--strict-mcp-config",
+            "--session-id",
+            session_id,
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect()
+    }
+
+    pub async fn one_shot(&self, system: &str, prompt: &str) -> Result<String> {
+        let session_id = uuid::Uuid::new_v4().to_string();
+        let run = self
+            .run(&Self::one_shot_args(system, &session_id), Some(prompt), None)
+            .await?;
+        let (text, _) = Self::interpret(&run, &session_id)?;
+        Ok(text)
+    }
+
     // Split out from turn() so the envelope contract can be tested without a
     // subprocess: it decides what counts as a failure and which session id the next
     // turn resumes. Returns the assistant text and that session id.

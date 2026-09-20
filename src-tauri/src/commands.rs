@@ -164,6 +164,39 @@ pub fn project_rename(state: State<'_, AppState>, project_id: String, name: Stri
     state.workspace(&project_id)
 }
 
+// The first name is the first line of what the researcher typed, cut at thirty
+// characters, which is right at the moment it is chosen -- there is nothing else
+// to go on, and waiting for the CLI would put a wait in front of the first
+// screen. A week later it is a truncated sentence sitting over a map of twenty
+// objects, and what the research turned out to be about is now knowable.
+//
+// So this is offered where renaming already is, and it only proposes: the name
+// lands in the field the researcher is editing, and it is still their press that
+// saves it. The agent never renames anything by itself.
+#[tauri::command]
+pub async fn project_suggest_name(state: State<'_, AppState>, project_id: String) -> Result<String> {
+    let prompt = {
+        let db = lock(&state.db)?;
+        crate::agent::naming_prompt(&db, &project_id)?
+    };
+    let suggested = state
+        .agent
+        .one_shot(crate::agent::NAMING_SYSTEM_PROMPT, &prompt)
+        .await?;
+    // A model asked for one line will still sometimes wrap it in quotes or add a
+    // sentence after it. Take the first line and strip the quoting rather than
+    // reject the answer: what it named is usable, the packaging is not.
+    let first = suggested.lines().find(|l| !l.trim().is_empty()).unwrap_or("");
+    let cleaned = first
+        .trim()
+        .trim_matches(|c| c == '"' || c == '「' || c == '」' || c == '『' || c == '』')
+        .trim();
+    if cleaned.is_empty() {
+        return err("研究名を思いつけませんでした。もう一度試すか、自分で入力してください。");
+    }
+    Ok(cleaned.chars().take(60).collect())
+}
+
 #[tauri::command]
 pub fn project_set_root(state: State<'_, AppState>, project_id: String, root_path: String) -> Result<Value> {
     let missing = {

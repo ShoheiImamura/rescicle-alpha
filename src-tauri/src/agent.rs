@@ -1,6 +1,6 @@
 use crate::db::Db;
 use crate::domain::{ObjectInput, RelationInput};
-use crate::error::Result;
+use crate::error::{err, Result};
 use crate::files::{resolve_project_file, FileEntry};
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -23,6 +23,60 @@ pub fn system_prompt() -> String {
          Every operation object must contain all the keys listed in the schema; use null for the ones that do not apply.\n\
          If no research object should change, return an empty operations array."
     )
+}
+
+// Its own system prompt, and deliberately not the research one: this is not a
+// turn of the conversation, it proposes no operations, and handing it the schema
+// would only invite a JSON object where one line is wanted.
+pub const NAMING_SYSTEM_PROMPT: &str = "\
+You name a piece of research. You are given what it has accumulated -- its \
+questions, hypotheses, predictions and measurements -- and you return a title \
+for it.\n\n\
+Return the title and nothing else: no quotation marks, no explanation, no \
+alternatives, no trailing full stop.\n\n\
+A title names the subject, it does not assert the answer. 「猫乳腺腫瘍のマウス移植に\
+おける生着率のばらつき」 names what is being studied; 「移植手技が生着率を左右する」 \
+states one of the hypotheses as though it were settled, which a title must never \
+do -- the research is what decides that, and the title outlives whichever \
+hypothesis turns out to be right.\n\n\
+Write it in the language the material is written in. Keep it to a phrase rather \
+than a sentence, and to about forty characters where that language counts them \
+that way -- room enough not to drop a word that carries meaning, and not so much \
+that the title becomes the abstract. Prefer the specific: the organism, the \
+material and the property in question say more than a field name does.";
+
+fn text(value: &Value, key: &str) -> String {
+    value.get(key).and_then(Value::as_str).unwrap_or("").to_string()
+}
+
+// Titles only. The bodies say what each object argues, which is what a title is
+// supposed to leave out, and sending them would spend the turn on reading rather
+// than on naming.
+pub fn naming_prompt(db: &Db, project_id: &str) -> Result<String> {
+    let objects = db.list_objects(project_id, None)?;
+    let listed: Vec<String> = objects
+        .iter()
+        .filter(|o| text(o, "status") != "rejected")
+        .take(60)
+        .map(|o| format!("- {}: {}", text(o, "type"), text(o, "title")))
+        .collect();
+    // Before anything has been proposed there is nothing but what the researcher
+    // said, and that is exactly the case where the first-line name is worst.
+    let opening = db
+        .list_messages(project_id, 4)?
+        .into_iter()
+        .filter(|m| text(m, "role") == "user")
+        .map(|m| text(&m, "content").chars().take(400).collect::<String>())
+        .collect::<Vec<_>>()
+        .join("\n");
+    if listed.is_empty() && opening.trim().is_empty() {
+        return err("まだ研究名のもとになるものがありません。");
+    }
+    Ok(format!(
+        "研究オブジェクト:\n{}\n\n研究者の言葉:\n{}\n\nこの研究の名前を1つ返してください。",
+        if listed.is_empty() { "（まだありません）".into() } else { listed.join("\n") },
+        if opening.trim().is_empty() { "（なし）" } else { &opening }
+    ))
 }
 
 pub fn ensure_agent_workspace(work_dir: &Path) -> Result<()> {

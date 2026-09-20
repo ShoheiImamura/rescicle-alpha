@@ -24,6 +24,7 @@ window.rescicle = {
   // allows exactly this one command.
   openUrl: url => call('plugin:opener|open_url', { url }),
   renameProject: (projectId, name) => call('project_rename', { projectId, name }),
+  suggestProjectName: projectId => call('project_suggest_name', { projectId }),
   setProjectRoot: (projectId, rootPath) => call('project_set_root', { projectId, rootPath }),
   listObjects: (projectId, type) => call('objects_list', { projectId, type: type ?? null }),
   getObject: objectId => call('object_get', { objectId }),

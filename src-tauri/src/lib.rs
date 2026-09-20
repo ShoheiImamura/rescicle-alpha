@@ -39,6 +39,7 @@ pub fn run() {
             commands::project_create,
             commands::project_open,
             commands::project_rename,
+            commands::project_suggest_name,
             commands::project_set_root,
             commands::objects_list,
             commands::object_get,

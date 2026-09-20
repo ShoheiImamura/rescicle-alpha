@@ -130,6 +130,9 @@ let state = {
   clearing: false,
   renaming: false,
   renameDraft: null,
+  // A name is being thought up. The CLI takes a few seconds, and the field has
+  // to say so or the press looks like it did nothing.
+  namingBusy: false,
   rootNotice: null,
   renameError: null,
   error: null
@@ -231,8 +234,12 @@ function bindExternalLinks() {
     if (!link) return;
     event.preventDefault();
     const url = link.dataset.external;
-    // The scheme was matched when the anchor was written; checked again here
-    // because this is the side that actually hands it to the operating system.
+    // The scheme was matched when the anchor was written, and it is matched again
+    // here because this is the side that hands it over. The one that actually
+    // decides is neither: capabilities/default.json scopes opener:allow-open-url
+    // to http and https, so Tauri refuses anything else before it reaches the
+    // system -- which is where a rule like this belongs, since a page the agent
+    // fetched is what wrote the text these anchors were built from.
     if (!/^https?:\/\//i.test(url)) return;
     api.openUrl(url).catch(e => { state.error = errText(e); render(); });
   };
@@ -523,9 +530,16 @@ function projectTitleHtml() {
   if (!state.renaming) {
     return `<button class="project-title" id="renameProject" title="クリックして研究名を変更">${esc(name)}</button>`;
   }
+  // The suggestion goes into the field, not onto the project. The first name is
+  // the first line of what was typed on day one, cut at thirty characters, and a
+  // week later it is a half-sentence over a map of twenty objects -- by which
+  // time what the research is about has become knowable. So it is offered here,
+  // where renaming already is, and it lands as a draft the researcher can edit
+  // and then save. The agent proposes; nothing renames itself.
   return `<div class="project-title renaming">
     <input id="projectNameInput" class="input project-name-input" value="${esc(state.renameDraft ?? name)}">
-    <button class="btn primary small" id="saveProjectName">保存</button>
+    <button class="btn primary small" id="saveProjectName"${state.namingBusy ? ' disabled' : ''}>保存</button>
+    <button class="btn small" id="suggestName"${state.namingBusy ? ' disabled' : ''}>${state.namingBusy ? '考えています…' : 'AIに考えてもらう'}</button>
     <button class="btn small" id="cancelProjectName">やめる</button>
     ${state.renameError ? `<span class="error rename-error">${esc(state.renameError)}</span>` : ''}
   </div>`;
@@ -1674,6 +1688,7 @@ function bind() {
     input?.focus(); input?.select();
   });
   document.getElementById('cancelProjectName')?.addEventListener('click', cancelRename);
+  document.getElementById('suggestName')?.addEventListener('click', suggestProjectName);
   document.getElementById('saveProjectName')?.addEventListener('click', saveProjectName);
   document.getElementById('projectNameInput')?.addEventListener('keydown', event => {
     if (event.key === 'Enter') saveProjectName();
@@ -1749,7 +1764,27 @@ function bind() {
 }
 
 function cancelRename() {
-  state.renaming = false; state.renameDraft = null; state.renameError = null; render();
+  state.renaming = false; state.renameDraft = null; state.renameError = null; state.namingBusy = false; render();
+}
+
+// Fills the field, and stops there. Renaming is still the researcher pressing
+// 保存 on something they have read and can edit first -- the same shape as every
+// other thing the agent proposes.
+async function suggestProjectName() {
+  // Whatever is half-typed is kept, so a suggestion that is not wanted can be
+  // undone by 「やめる」 without losing the edit it interrupted.
+  state.renameDraft = document.getElementById('projectNameInput')?.value ?? state.renameDraft;
+  state.namingBusy = true; state.renameError = null;
+  render();
+  try {
+    state.renameDraft = await api.suggestProjectName(state.workspace.project.id);
+  } catch (e) { state.renameError = errText(e); }
+  state.namingBusy = false;
+  render();
+  // Selected rather than merely filled: the next keystroke replaces it, which is
+  // what someone does with a suggestion they do not want.
+  const box = document.getElementById('projectNameInput');
+  if (box) { box.focus(); box.select(); }
 }
 
 async function saveProjectName() {
