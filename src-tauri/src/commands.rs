@@ -280,7 +280,22 @@ pub fn claude_copy_setup(app: AppHandle) -> Result<String> {
 }
 
 pub fn init_state(app: &AppHandle) -> Result<AppState> {
-    let data_dir = crate::settings::data_dir();
+    let data_dir = crate::settings::data_dir()?;
+    // #region agent log
+    let _ = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(r"C:\Users\s3ima\projects\rescicle-first-user-v2\debug-2b0f2d.log")
+        .and_then(|mut file| {
+            use std::io::Write;
+            writeln!(
+                file,
+                "{{\"sessionId\":\"2b0f2d\",\"runId\":\"exe-crash\",\"hypothesisId\":\"G\",\"location\":\"commands.rs\",\"message\":\"init_state\",\"data\":{{\"dataDir\":\"{}\"}},\"timestamp\":{}}}",
+                data_dir.display().to_string().replace('\\', "\\\\"),
+                std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0)
+            )
+        });
+    // #endregion
     std::fs::create_dir_all(&data_dir)?;
     let _ = app;
     Ok(AppState {

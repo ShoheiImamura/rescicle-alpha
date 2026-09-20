@@ -143,7 +143,7 @@ fn text_result(value: &Value) -> Value {
 }
 
 pub fn run_stdio() -> Result<()> {
-    let data_dir = settings::data_dir();
+    let data_dir = settings::data_dir()?;
     let db = Db::open(&settings::db_path(&data_dir))?;
     let stdin = std::io::stdin();
     let mut stdout = std::io::stdout();

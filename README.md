@@ -143,6 +143,8 @@ npm run build  # インストーラを src-tauri/target/release/bundle/nsis/ に
 
 `RESCICLE_DATA_DIR` を指定すると、`%AppData%\rescicle` ではなくそのフォルダをデータ置き場として使います。手元の研究記録に触れずに、まっさらな状態から試せます。
 
+**Windowsの絶対パスで指定してください。** 相対パスと、Git Bash 形式の `/c/Users/...` は起動時に弾かれます。後者はWindowsから見ると絶対パスではなく、そのまま解決すると `C:\c\Users\...` という別の場所が静かに作られてしまうためです（Git Bash から `export` する場合はMSYSが変換するので、そのまま書いて構いません）。
+
 ```powershell
 $env:RESCICLE_DATA_DIR = "$env:TEMP\rescicle-scratch"
 npm run dev
