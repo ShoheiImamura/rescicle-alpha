@@ -179,7 +179,13 @@ function overviewHtml() {
   return `<div class="page-title"><h1>${esc(state.workspace.project.name)}</h1></div>
     <div class="muted page-note">問い → 仮説 → 予測 → 測定 → データ のつながりです。右側のAIと話すと、ここが育っていきます。</div>
     ${mapHtml()}
-    ${state.selectedObject && CHAIN.includes(state.selectedObject.type) ? cardHtml(state.selectedObject, { pinned: true }) : ''}
+    ${state.selectedObject && CHAIN.includes(state.selectedObject.type)
+      // Sticks to the bottom of the column while the map is taller than the
+      // viewport. Sitting in the flow under the map meant that with twenty
+      // hypotheses the detail opened a thousand pixels below the fold, so
+      // clicking a node looked like it had done nothing at all.
+      ? `<div class="map-detail">${cardHtml(state.selectedObject, { pinned: true })}</div>`
+      : ''}
     ${offMap.length ? `<section class="section"><div class="section-head"><h2>マップに載らないもの</h2></div><div class="object-grid">${offMap.map(cardHtml).join('')}</div></section>` : ''}`;
 }
 
