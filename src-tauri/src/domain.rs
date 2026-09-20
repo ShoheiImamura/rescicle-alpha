@@ -1,13 +1,12 @@
 use crate::error::{err, Result};
 use serde::Deserialize;
 
-pub const OBJECT_TYPES: [&str; 6] = [
+pub const OBJECT_TYPES: [&str; 5] = [
     "question",
     "hypothesis",
     "prediction",
     "measurement",
     "asset",
-    "note",
 ];
 pub const ORIGINS: [&str; 5] = ["researcher", "agent", "system", "instrument", "imported"];
 pub const STATUSES: [&str; 3] = ["proposed", "confirmed", "rejected"];

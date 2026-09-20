@@ -68,7 +68,59 @@ impl Db {
         // fsync per INSERT. NORMAL under WAL can lose the most recent commits on a
         // power cut but never corrupts the file, and it makes writes ~15x cheaper.
         conn.pragma_update(None, "synchronous", "NORMAL")?;
-        Ok(Self { conn })
+        let db = Self { conn };
+        db.migrate_notes_onto_objects()?;
+        Ok(db)
+    }
+
+    // A remark about a hypothesis was a `note` object joined to it by a relation,
+    // which said a side remark exists on its own and can be about several things
+    // at once. It does not and it cannot: it belongs to the thing it is about.
+    // So it becomes a column, and the notes already written move into it.
+    //
+    // A note attached to two objects is written onto both. The text was about
+    // both of them, and copying it loses nothing now that it is text rather than
+    // a row anybody else points at. A note attached to nothing is dropped: with
+    // no object to belong to there is nothing for it to be a remark on.
+    //
+    // CREATE TABLE IF NOT EXISTS leaves an existing table alone, so the column
+    // has to be added here for a database that predates it.
+    fn migrate_notes_onto_objects(&self) -> Result<()> {
+        let has_note = self
+            .conn
+            .prepare("SELECT 1 FROM pragma_table_info('objects') WHERE name='note'")?
+            .exists([])?;
+        if !has_note {
+            self.conn
+                .execute("ALTER TABLE objects ADD COLUMN note TEXT", [])?;
+        }
+        let notes = query_all(
+            &self.conn,
+            "SELECT id, title, body FROM objects WHERE type='note'",
+            &[],
+        )?;
+        for note in &notes {
+            let id = text(note, "id");
+            let body = text(note, "body");
+            let written = if body.is_empty() {
+                text(note, "title")
+            } else {
+                format!("{}\n{}", text(note, "title"), body)
+            };
+            self.conn.execute(
+                "UPDATE objects SET note =
+                   CASE WHEN note IS NULL OR note='' THEN ?1 ELSE note || char(10) || ?1 END
+                 WHERE id IN (
+                   SELECT CASE WHEN subject_id=?2 THEN object_id ELSE subject_id END
+                   FROM relations WHERE subject_id=?2 OR object_id=?2
+                 ) AND type <> 'note'",
+                params![written, id],
+            )?;
+        }
+        if !notes.is_empty() {
+            self.conn.execute("DELETE FROM objects WHERE type='note'", [])?;
+        }
+        Ok(())
     }
 
     fn event(
@@ -248,6 +300,31 @@ impl Db {
             Some(json!({ "type": input.type_, "status": input.status })),
         )?;
         query_one(&self.conn, "SELECT * FROM objects WHERE id=?", &[&id])?
+            .ok_or_else(|| Error("object not found".into()))
+    }
+
+    // The remark on an object, replaced whole. There is one of them and it has no
+    // state of its own -- it is a thing written down beside the object, and
+    // asking whether a remark is 確定 was what made the old note type read wrong.
+    // Empty clears it.
+    pub fn set_object_note(&self, object_id: &str, note: &str, actor: &str) -> Result<Value> {
+        let object = query_one(&self.conn, "SELECT * FROM objects WHERE id=?", &[&object_id])?
+            .ok_or_else(|| Error("object not found".into()))?;
+        let trimmed = note.trim();
+        let value = (!trimmed.is_empty()).then(|| trimmed.to_string());
+        self.conn.execute(
+            "UPDATE objects SET note=?, updated_at=? WHERE id=?",
+            params![value, now(), object_id],
+        )?;
+        self.event(
+            &text(&object, "project_id"),
+            "object_note_set",
+            actor,
+            Some(object_id),
+            None,
+            Some(json!({ "empty": trimmed.is_empty() })),
+        )?;
+        self.get_object(object_id)?
             .ok_or_else(|| Error("object not found".into()))
     }
 
@@ -738,7 +815,8 @@ impl Db {
             .map(|o| {
                 let mut row = json!({
                     "id": o.get("id"), "type": o.get("type"), "title": o.get("title"),
-                    "body": o.get("body"), "origin": o.get("origin"), "status": o.get("status"),
+                    "body": o.get("body"), "note": o.get("note"),
+                    "origin": o.get("origin"), "status": o.get("status"),
                 });
                 // The agent is told to record whether a measurement has been run
                 // and to keep it out of the body. Without it here it could write

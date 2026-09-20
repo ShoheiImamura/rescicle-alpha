@@ -15,6 +15,12 @@ CREATE TABLE IF NOT EXISTS objects (
   type TEXT NOT NULL,
   title TEXT NOT NULL,
   body TEXT,
+  -- A remark about this object, kept beside it rather than as an object of its
+  -- own. It used to be a `note` type joined on by a relation, which made a side
+  -- remark something that exists independently and can be attached to several
+  -- things at once. It is not: it belongs to one thing, and a column is what
+  -- belonging to one thing looks like.
+  note TEXT,
   origin TEXT NOT NULL,
   status TEXT NOT NULL,
   created_at TEXT NOT NULL,

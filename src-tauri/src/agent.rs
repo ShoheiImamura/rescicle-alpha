@@ -154,6 +154,8 @@ pub struct Operation {
     pub path: Option<String>,
     #[serde(default)]
     pub performed: Option<bool>,
+    #[serde(default)]
+    pub note: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -215,10 +217,22 @@ pub fn apply_operations(
                     },
                     actor_for(op.origin.as_ref()),
                 )
-                .map(|created| {
+                .and_then(|created| {
                     let id = created["id"].as_str().unwrap_or_default().to_string();
-                    (json!({ "ok": true, "op": op.op, "id": id }), Some(id))
+                    // A remark given at the same time as the object it is about.
+                    // It is a column on that row, so there is nothing to create
+                    // and nothing to join -- it is written straight on.
+                    if let Some(note) = op.note.as_deref().filter(|n| !n.trim().is_empty()) {
+                        db.set_object_note(&id, note, actor_for(op.origin.as_ref()))?;
+                    }
+                    Ok((json!({ "ok": true, "op": op.op, "id": id }), Some(id)))
                 }),
+            // A remark on something that already exists.
+            "set_note" => {
+                let id = deref(&refs, &op.id);
+                db.set_object_note(&id, op.note.as_deref().unwrap_or(""), "agent")
+                    .map(|updated| (json!({ "ok": true, "op": op.op, "id": updated["id"] }), None))
+            }
             "register_asset" => match &op.path {
                 None => crate::error::err("path required"),
                 Some(path) => resolve_project_file(project_root, path)

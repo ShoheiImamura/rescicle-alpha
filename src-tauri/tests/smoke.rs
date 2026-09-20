@@ -56,6 +56,7 @@ fn op(op: &str) -> Operation {
         object: None,
         path: None,
         performed: None,
+        note: None,
     }
 }
 
@@ -666,4 +667,174 @@ fn a_project_can_start_before_a_research_folder_is_chosen() {
         .unwrap();
     assert!(!str_of(&updated, "root_path").is_empty());
     assert!(missing.is_empty());
+}
+
+// Everything rescicle does to the research folder is looking. It is the promise
+// the README leads with and the reason a researcher points it at real data, and
+// it is the sort of thing a later change breaks without anyone noticing -- so it
+// is checked rather than remembered. Take the folder byte for byte, run
+// everything that touches it, and compare.
+fn snapshot(root: &Path) -> Vec<(String, Vec<u8>, std::time::SystemTime)> {
+    fn walk(base: &Path, dir: &Path, out: &mut Vec<(String, Vec<u8>, std::time::SystemTime)>) {
+        let Ok(entries) = std::fs::read_dir(dir) else { return };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                walk(base, &path, out);
+                continue;
+            }
+            let rel = path.strip_prefix(base).unwrap().to_string_lossy().into_owned();
+            let meta = std::fs::metadata(&path).unwrap();
+            out.push((rel, std::fs::read(&path).unwrap(), meta.modified().unwrap()));
+        }
+    }
+    let mut out = Vec::new();
+    walk(root, root, &mut out);
+    out.sort();
+    out
+}
+
+#[test]
+fn nothing_rescicle_does_writes_to_the_research_folder() {
+    use rescicle_lib::agent::{build_prompt, read_requested};
+    use rescicle_lib::files::scan_files;
+
+    let tmp = TempDir::new("read-only");
+    let research = tmp.path().join("research");
+    std::fs::create_dir_all(research.join("data")).unwrap();
+    std::fs::write(research.join("data").join("run.csv"), "a,b\n1,2\n").unwrap();
+    std::fs::write(research.join("notes.md"), "# メモ\n").unwrap();
+    let before = snapshot(&research);
+
+    let db = Db::open(&tmp.path().join("rescicle.sqlite")).unwrap();
+    let project_id = str_of(
+        &db.create_project("read-only", research.to_str().unwrap()).unwrap(),
+        "id",
+    );
+
+    // Everything with a path in its hands.
+    let files = scan_files(&research, 120);
+    assert_eq!(files.len(), 2, "the scan should have found both files");
+    db.register_asset(&project_id, &research.join("data").join("run.csv"), "researcher")
+        .unwrap();
+    let read = read_requested(
+        &research,
+        &["data/run.csv".to_string(), "notes.md".to_string()],
+        4,
+    );
+    assert_eq!(read.len(), 2, "both files should have been readable");
+    build_prompt(&db, &project_id, "どう思う", None, &files, &read).unwrap();
+    db.workspace(&project_id).unwrap();
+    db.set_project_root(&project_id, research.to_str().unwrap(), "researcher")
+        .unwrap();
+    db.reset_all().unwrap();
+
+    assert_eq!(
+        before,
+        snapshot(&research),
+        "the research folder is not rescicle's to change"
+    );
+}
+
+// A remark used to be a `note` object joined on by a relation, which said it
+// exists on its own and can be about several things at once. It is neither, so
+// it became a column -- and the remarks already written have to arrive there.
+// One attached to two objects is written onto both, because it was about both
+// and copying text loses nothing once nobody points at it. One attached to
+// nothing is dropped: with no object to belong to it is a remark on nothing.
+#[test]
+fn notes_become_a_remark_on_the_object_they_were_about() {
+    let tmp = TempDir::new("note-migration");
+    let research = tmp.path().join("research");
+    std::fs::create_dir_all(&research).unwrap();
+    let path = tmp.path().join("rescicle.sqlite");
+
+    let project_id;
+    {
+        let db = Db::open(&path).unwrap();
+        project_id = str_of(
+            &db.create_project("notes", research.to_str().unwrap()).unwrap(),
+            "id",
+        );
+        let q = str_of(
+            &db.create_object(&project_id, &object("question", "Q", "researcher", "confirmed"), "researcher").unwrap(),
+            "id",
+        );
+        let h = str_of(
+            &db.create_object(&project_id, &object("hypothesis", "H", "agent", "proposed"), "agent").unwrap(),
+            "id",
+        );
+
+        // The old shape, which create_object will not make any more.
+        let conn = rusqlite::Connection::open(&path).unwrap();
+        let add_note = |id: &str, title: &str, body: &str| {
+            conn.execute(
+                "INSERT INTO objects(id,project_id,type,title,body,origin,status,created_at,updated_at)
+                 VALUES(?,?,'note',?,?,'agent','proposed','2026-01-01T00:00:00.000Z','2026-01-01T00:00:00.000Z')",
+                rusqlite::params![id, project_id, title, body],
+            )
+            .unwrap();
+        };
+        add_note("note_both", "両方について", "本文A");
+        add_note("note_one", "仮説について", "本文B");
+        add_note("note_orphan", "どこにも属さない", "本文C");
+        for (subject, object_id, predicate) in [
+            ("note_both", q.as_str(), "related_to"),
+            ("note_both", h.as_str(), "references"),
+            ("note_one", h.as_str(), "references"),
+        ] {
+            conn.execute(
+                "INSERT INTO relations(id,project_id,subject_id,predicate,object_id,origin,status,created_at)
+                 VALUES(?,?,?,?,?,'agent','proposed','2026-01-01T00:00:00.000Z')",
+                rusqlite::params![format!("rel_{subject}_{object_id}"), project_id, subject, predicate, object_id],
+            )
+            .unwrap();
+        }
+    }
+
+    // Opening it again is what runs the migration.
+    let db = Db::open(&path).unwrap();
+    assert!(
+        db.list_objects(&project_id, Some("note")).unwrap().is_empty(),
+        "the note objects should be gone"
+    );
+
+    let by_title = |title: &str| {
+        db.list_objects(&project_id, None)
+            .unwrap()
+            .into_iter()
+            .find(|o| str_of(o, "title") == title)
+            .unwrap_or_else(|| panic!("{title} should still be there"))
+    };
+    let question = by_title("Q");
+    let hypothesis = by_title("H");
+    let note_of = |o: &Value| o.get("note").and_then(Value::as_str).unwrap_or("").to_string();
+
+    assert!(note_of(&question).contains("両方について"));
+    assert!(note_of(&question).contains("本文A"));
+    assert!(
+        !note_of(&question).contains("仮説について"),
+        "a note that was not about the question landed on it anyway"
+    );
+    // Two remarks on one object are kept, one after the other.
+    assert!(note_of(&hypothesis).contains("両方について"));
+    assert!(note_of(&hypothesis).contains("仮説について"));
+    assert!(
+        !db.list_objects(&project_id, None)
+            .unwrap()
+            .iter()
+            .any(|o| note_of(o).contains("本文C")),
+        "a note attached to nothing has nowhere to belong and is not carried anywhere"
+    );
+    // Opening it a third time must not write the remarks on a second time: the
+    // notes are gone by then, so there is nothing left to fold.
+    let once = note_of(&hypothesis);
+    let reopened = Db::open(&path).unwrap();
+    let again = reopened
+        .list_objects(&project_id, None)
+        .unwrap()
+        .into_iter()
+        .find(|o| str_of(o, "title") == "H")
+        .expect("H should still be there");
+    assert_eq!(once, note_of(&again));
 }

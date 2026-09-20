@@ -8,15 +8,15 @@ const TYPE_LABEL = {
   hypothesis: '仮説',
   prediction: '予測',
   measurement: '測定',
-  asset: 'データ',
-  note: 'メモ'
+  asset: 'データ'
 };
 const STATUS_LABEL = { proposed: '提案中', confirmed: '確定', rejected: '却下' };
-// A note is something written down, not a claim about the world. The three
-// states are the same underneath, but confirming or rejecting a reminder to
-// redo some wiring is not what those words mean.
-const NOTE_STATUS_LABEL = { proposed: '未整理', confirmed: '残す', rejected: '不要' };
-const statusLabel = o => (o.type === 'note' ? NOTE_STATUS_LABEL : STATUS_LABEL)[o.status] || o.status;
+// There used to be a note type here, with 未整理 / 残す / 不要 standing in for the
+// three states because 確定 and 却下 are not things you do to a remark. Renaming
+// them was the tell: a remark is not a claim and does not need deciding, and it
+// is not an object either -- it belongs to the one thing it is about, which is a
+// column on that thing rather than a row joined to it.
+const statusLabel = o => STATUS_LABEL[o.status] || o.status;
 const ORIGIN_LABEL = { researcher: '研究者', agent: 'AI提案', system: 'システム', instrument: '測定機器', imported: 'インポート' };
 // allowed_relation() in src-tauri/src/domain.rs fixes the chain question ->
 // hypothesis -> prediction -> measurement -> asset, so the map is a layered DAG:
@@ -278,7 +278,7 @@ function workspaceHtml() {
     <header class="topbar"><div class="brand">rescicle</div>${projectTitleHtml()}${w.project.root_path ? `<div class="root-hint" title="${esc(w.project.root_path)}">${esc(w.project.root_path)}</div>` : '<div class="root-hint"></div>'}<button class="btn small" id="settingsBtn">設定</button></header>
     <div class="layout">
       <aside class="sidebar">${sidebarHtml()}</aside>
-      <main class="content"><div class="content-inner">${noticeHtml()}${contentHtml()}</div></main>
+      <main class="content"><div class="content-inner${wideScreen() ? ' wide' : ''}">${noticeHtml()}${contentHtml()}</div></main>
       <aside class="chat">${chatHtml()}</aside>
     </div>
     ${state.modal === 'settings' ? settingsModalHtml() : ''}
@@ -296,15 +296,26 @@ function sidebarHtml() {
     counts[o.type] = (counts[o.type] || 0) + 1;
   }
   // データ takes the files' place in the nav rather than sitting beside it: one
-  // screen lists both, and the count is of the files that are research -- the
-  // rest of the folder is not something the sidebar should be counting.
+  // screen lists both. It carries no count, because the row names two
+  // collections and one number cannot say which of them it counted -- it was
+  // counting the データ, and read as counting the folder. Both counts are on the
+  // screen itself, on the headings they belong to.
   const nav = [
     ['overview', 'マップ', ''],
     ...Object.entries(TYPE_LABEL).map(([k, label]) =>
-      k === 'asset' ? ['files', 'データ・ファイル', counts.asset || 0] : [k, label, counts[k] || 0]),
+      k === 'asset' ? ['files', 'データ・ファイル', ''] : [k, label, counts[k] || 0]),
   ];
   return `<div class="search-box"><input id="searchInput" class="input" type="search" placeholder="検索（Ctrl+F）" value="${esc(state.query)}"></div>
     <div class="nav-title">研究オブジェクト</div>${nav.map(([id,label,count]) => `<button class="nav-btn ${state.currentType===id?'active':''}" data-nav="${id}"><span>${esc(label)}</span><span class="count">${count}</span></button>`).join('')}`;
+}
+
+// The two screens that are not cards and prose: the map, which is as wide as
+// the chain is long, and the data and file lists, which are two columns. A
+// search is cards wherever it was run from, so it reads at the narrow measure
+// like every other list.
+function wideScreen() {
+  if (state.query.trim()) return false;
+  return state.currentType === 'overview' || state.currentType === 'files';
 }
 
 function contentHtml() {
@@ -329,8 +340,8 @@ function rejectedNoticeHtml() {
   const notice = state.rejectedNotice;
   if (!notice || Date.now() >= notice.until) return '';
   const name = `「${esc(notice.title)}」`;
-  const said = notice.type === 'note' ? `${name}を不要にしました。`
-    : notice.type === 'asset' ? `${name}の登録を取り消しました。ファイルはフォルダにそのまま残ります。`
+  const said = notice.type === 'asset'
+    ? `${name}の登録を取り消しました。ファイルはフォルダにそのまま残ります。`
     : `${name}を却下しました。`;
   // Back to where it was, which is not the same place for everything: a
   // registered file was never proposed, so proposed is not a state to return it
@@ -359,15 +370,22 @@ function projectTitleHtml() {
 // whose reason to exist is "the picture above cannot show these" earns its space
 // on the page it belongs to instead: the sidebar already has one.
 function overviewHtml() {
+  const g = buildMap(state.workspace.objects || [], state.workspace.relations || []);
   return `<div class="page-title"><h1>${esc(state.workspace.project.name)}</h1></div>
     <div class="muted page-note">問い → 仮説 → 予測 → 測定 → データ のつながりです。右側のAIと話すと、ここが育っていきます。</div>
-    ${mapHtml()}
+    ${mapHtml(g)}
     ${state.selectedObject && CHAIN.includes(state.selectedObject.type)
       // Sticks to the bottom of the column while the map is taller than the
       // viewport. Sitting in the flow under the map meant that with twenty
       // hypotheses the detail opened a thousand pixels below the fold, so
       // clicking a node looked like it had done nothing at all.
-      ? `<div class="map-detail">${cardHtml(state.selectedObject, { pinned: true })}</div>`
+      //
+      // As wide as the map and no wider. The map is as wide as the chain is
+      // long -- three columns of it is 600px on a 1020px page -- so a panel
+      // sized to the page stands out past the thing it belongs to, and one
+      // sized to the reading measure falls short of a full chain. It takes the
+      // map's own width, with a floor so a one-column map does not squeeze it.
+      ? `<div class="map-detail" style="max-width:${Math.max(g.width, 520)}px">${cardHtml(state.selectedObject, { pinned: true })}</div>`
       : ''}`;
 }
 
@@ -470,8 +488,7 @@ function buildMap(objects, relations) {
   };
 }
 
-function mapHtml() {
-  const g = buildMap(state.workspace.objects || [], state.workspace.relations || []);
+function mapHtml(g) {
   if (!g.count) return '<div class="empty">AIとの会話から少しずつ増えていきます。</div>';
   const edges = g.edges.map(r => {
     // from/to are the edge oriented by column, not subject and object: see
@@ -503,7 +520,7 @@ function mapHtml() {
 // under it rather than whatever order they were last touched in.
 function searchHtml() {
   const needle = state.query.trim().toLowerCase();
-  const order = new Map([...CHAIN, 'note'].map((type, i) => [type, i]));
+  const order = new Map(CHAIN.map((type, i) => [type, i]));
   const hits = (state.workspace.objects || [])
     .filter(o => `${o.title} ${o.body || ''}`.toLowerCase().includes(needle))
     .sort((a, b) => (order.get(a.type) ?? 99) - (order.get(b.type) ?? 99));
@@ -564,11 +581,10 @@ function statusButtonsHtml(o) {
   if (o.type === 'asset') {
     return `<button class="btn danger small" data-status="rejected" data-target-id="${o.id}" title="ファイルはそのまま、研究の記録から外します">登録を取り消す</button>`;
   }
-  const note = o.type === 'note';
   if (o.status === 'proposed') {
-    return `<button class="btn primary small" data-status="confirmed" data-target-id="${o.id}">${note ? '残す' : '確定'}</button><button class="btn danger small" data-status="rejected" data-target-id="${o.id}">${note ? '不要' : '却下'}</button>`;
+    return `<button class="btn primary small" data-status="confirmed" data-target-id="${o.id}">確定</button><button class="btn danger small" data-status="rejected" data-target-id="${o.id}">却下</button>`;
   }
-  return `<button class="btn small" data-status="proposed" data-target-id="${o.id}">${note ? '戻す' : '提案中に戻す'}</button>`;
+  return `<button class="btn small" data-status="proposed" data-target-id="${o.id}">提案中に戻す</button>`;
 }
 
 // `fileLine` replaces the type label for a registered file. Where the card is
@@ -590,14 +606,31 @@ function cardHtml(o, { pinned = false, extraActions = '', fileLine = null } = {}
   // A registered file has one state worth naming and it is named by being in the
   // list at all, so the 確定 pill would be a decision nobody made.
   const status = o.type === 'asset' ? '' : `<span class="pill ${o.status}">${esc(statusLabel(o))}</span>`;
-  // `system` is what register_asset wrote before it was told who was registering,
-  // and there is no way to tell now whether it was the researcher or the agent.
-  // Saying システム names neither of them, so those say nothing at all; the ones
-  // recorded since say 研究者 or AI提案 like everything else.
-  const origin = o.origin === 'system'
+  // Who it came from, where that is worth saying.
+  //
+  // On a hypothesis it is about the research: whose idea it was is a fact about
+  // the thinking, and 研究者 and AI提案 are both worth reading.
+  //
+  // On a registered file it is bookkeeping. 研究者 there says only that the
+  // researcher pressed the button they are looking at the result of, which they
+  // knew. AI提案 is the one that carries anything -- something is in the record
+  // that they did not put there -- so that is the one that speaks.
+  //
+  // `system` is what register_asset wrote before it was told who was
+  // registering. It names neither of them, so it says nothing at all.
+  const quiet = o.origin === 'system' || (o.type === 'asset' && o.origin !== 'agent');
+  const origin = quiet
     ? ''
     : `<span class="pill ${o.origin === 'agent' ? 'agent' : ''}">${esc(ORIGIN_LABEL[o.origin] || o.origin)}</span>`;
-  return `<div class="card ${open ? 'open' : ''} ${o.status}">${row}<div class="card-main">${head}<div class="card-title">${esc(o.title)}</div>${o.body ? `<div class="card-body">${esc(o.body)}</div>`:''}<div class="pills">${status}${origin}${performedPillHtml(o)}</div></div><div class="card-actions">${extraActions}${performedButtonHtml(o)}${statusButtonsHtml(o)}</div></div>${full ? expansionHtml(full) : ''}</div>`;
+  // On the map, what a node is for is being looked at, and the move that follows
+  // is talking about it. Deciding a claim stays -- confirming what the agent
+  // proposed is the loop the map is the front of -- but administering a record
+  // does not: 登録を取り消す on an asset is bookkeeping, and the map is not where
+  // the books are kept. The list the object lives on still has it.
+  const actions = pinned
+    ? `<button class="btn small primary" id="talkAbout">チャットで相談する</button>${o.type === 'asset' ? '' : performedButtonHtml(o) + statusButtonsHtml(o)}`
+    : `${extraActions}${performedButtonHtml(o)}${statusButtonsHtml(o)}`;
+  return `<div class="card ${open ? 'open' : ''} ${o.status}">${row}<div class="card-main">${head}<div class="card-title">${esc(o.title)}</div>${o.body ? `<div class="card-body">${esc(o.body)}</div>`:''}${o.note ? `<div class="card-note">${esc(o.note)}</div>`:''}<div class="pills">${status}${origin}${performedPillHtml(o)}</div></div><div class="card-actions">${actions}</div></div>${full ? expansionHtml(full) : ''}</div>`;
 }
 
 // The far end a new chain link could have, one slot per edge this object's type
@@ -633,29 +666,6 @@ function linkSlots(o, ends) {
 // a line the agent drew and nobody has decided on yet, which is a line that
 // exists; a candidate is one that does not. It carries a ＋ and no frame until
 // the pointer is on it.
-// A note is not on the chain, so nothing it is joined to belongs in the picture
-// the chain draws -- and because it was never in that picture, giving it a block
-// of its own costs no new geometry. That is the difference from a relation
-// between two hypotheses, which would have had to break the one the map is built
-// on. Notes attach through references, and being a note fixes the predicate the
-// way a pair of chain types does, so this is the same one-click pick.
-function noteCounterparts(o) {
-  const note = o.type === 'note';
-  return (state.workspace.objects || []).filter(c =>
-    c.id !== o.id && c.status !== 'rejected' && (note ? c.type !== 'note' : c.type === 'note'));
-}
-
-function noteBlockHtml(o, noted, picking, relRow) {
-  const note = o.type === 'note';
-  const taken = new Set(noted.map(e => e.id));
-  const candidates = picking ? noteCounterparts(o).filter(c => !taken.has(c.id)) : [];
-  if (!noted.length && !candidates.length) return '';
-  const rows = noted
-    .map(e => relRow(e.r, e.id, e.title, e.type, 'note'))
-    .concat(candidates.map(c =>
-      candidateRowHtml({ predicate: 'references', asSubject: note, otherType: c.type }, c, 'note')));
-  return `<div class="expand-head">${note ? '何についてのメモか' : 'メモ'}</div><div class="rel-map">${rows.join('')}</div>`;
-}
 
 function candidateRowHtml(slot, c, side) {
   return `<div class="rel-row candidate ${side}" data-link-add="${esc(c.id)}" data-link-predicate="${esc(slot.predicate)}" data-link-subject="${slot.asSubject ? 'self' : 'picked'}">
@@ -716,11 +726,7 @@ function expansionHtml(o) {
     ...(o.incoming || []).map(r => ({ r, id: r.subject_id, title: r.subject_title, type: r.subject_type })),
     ...(o.outgoing || []).map(r => ({ r, id: r.object_id, title: r.object_title, type: r.object_type }))
   ];
-  // Rank puts a note at the end of everything, so a note hung on a hypothesis
-  // used to read as downstream of it -- further along a chain it is not on.
-  const involvesNote = e => o.type === 'note' || e.type === 'note';
-  const noted = ends.filter(involvesNote);
-  const chained = ends.filter(e => !involvesNote(e));
+  const chained = ends;
   const upstream = chained
     .filter(e => (rank.get(e.type) ?? 99) < mine)
     .map(e => relRow(e.r, e.id, e.title, e.type, 'up'));
@@ -744,18 +750,14 @@ function expansionHtml(o) {
   const graph = upstream.length || downstream.length
     ? `<div class="rel-map">${upstream.join('')}<div class="rel-here"><span class="type">${esc(TYPE_LABEL[o.type] || o.type)}</span></div>${downstream.join('')}</div>`
     : '<div class="expand-empty">まだつながりはありません。</div>';
-  const noteBlock = noteBlockHtml(o, noted, picking, relRow);
-  // One toggle for both blocks: the question it answers is "what else can I
-  // attach here", and a note is one of the answers.
-  const attachable = slots.length || noteCounterparts(o).length > noted.length;
-  const link = attachable
+  // ＋つなぐ draws the chain and nothing else now: a remark used to go through it
+  // too, which said writing something down was structural work.
+  const link = slots.length
     ? `<button class="link-add${picking ? ' open' : ''}" data-link-toggle="${esc(o.id)}">${picking ? 'やめる' : '＋ つなぐ'}</button>`
     : '';
 
   return `<div class="card-expand">
-    ${o.type === 'note' ? '' : `<div class="expand-head">つながり</div>${graph}`}
-    ${noteBlock}
-    ${link}
+    <div class="expand-head">つながり</div>${graph}${link}
     ${o.type==='asset' && o.asset ? `<div class="expand-head">ローカルファイル</div><div class="card-body">${esc(o.asset.relative_path)}
 ${fmtSize(o.asset.size_bytes)} · ${esc(o.asset.modified_at)}</div>` : ''}
   </div>`;
@@ -863,8 +865,11 @@ function filesHtml() {
   const orphaned = [...assets.values()];
   const readCount = state.files.filter(f => f.read).length;
 
-  const group = (title, count, body) =>
-    `<section class="section"><div class="section-head"><h2>${title}</h2><span class="muted">${count}件</span></div>${body}</section>`;
+  // `action` is for a verb that belongs to one collection rather than to the
+  // screen. 再スキャン is one: it re-reads the folder, and the データ beside it
+  // are in the database and do not change when it runs.
+  const group = (title, count, body, action = '') =>
+    `<section class="section"><div class="section-head"><h2>${title}</h2><span class="muted">${count}件</span>${action}</div>${body}</section>`;
 
   // Side by side rather than stacked. A folder holds hundreds of files and a
   // handful of them are the data, so stacking put the research above a list long
@@ -888,25 +893,43 @@ function filesHtml() {
            <div class="object-grid">${orphaned.map(o => cardHtml(o, { fileLine: 'ファイルが見つかりません' })).join('')}</div>`)
       : ''}`;
 
-  const hasRoot = !!state.workspace?.project?.root_path;
-  const folderColumn = plain.length
-    ? group('フォルダ内のファイル', plain.length, `<div class="files">${plain.map(fileRowHtml).join('')}</div>`)
-    // No folder yet is the only one of these with something to do about it.
-    : !hasRoot
-      ? `<div class="empty">研究フォルダを選ぶと、その中のファイルがここに並びます。
-           <div class="actions" style="justify-content:center;margin-top:12px"><button class="btn small" id="pickRootHere">研究フォルダを選ぶ</button></div></div>`
+  // The path belongs to this column and not to the screen. データ on the other
+  // side is research objects, which are in the database and stay there whichever
+  // folder is pointed at; only this list is a view of a folder. At the top of
+  // the page it claimed the whole screen was that folder's, which is the
+  // reading it invites and not a true one.
+  const root = state.workspace?.project?.root_path || "";
+  // A caption on the collection, not a row in it. Boxed it was the same shape as
+  // a file row -- rounded rect, text at the left, button at the right -- so it
+  // read as a file named C:\Users\... sitting at the top of the list.
+  const folderBar = `<div class="folder-line">
+    ${root
+      ? `<span class="folder-line-path" title="${esc(root)}">${esc(root)}</span>`
+      : '<span class="folder-line-path">研究フォルダはまだ選ばれていません</span>'}
+    <button class="link-add" id="changeRootHere">${root ? "別のフォルダに変更" : "研究フォルダを選ぶ"}</button>
+  </div>`;
+  const folderBody = !root
+    ? '<div class="empty">研究フォルダを選ぶと、その中のファイルがここに並びます。</div>'
+    : plain.length
+      ? `<div class="files">${plain.map(fileRowHtml).join("")}</div>`
       // Nothing to do is not worth a box the size of a list. One line says it.
       : state.files.length
-        ? '<div class="muted settings-note">フォルダのファイルはすべて登録済みです。</div>'
-        : '<div class="empty">「再スキャン」で研究フォルダを確認します。</div>';
+        ? '<div class="muted settings-note">このフォルダのファイルはすべて登録済みです。</div>'
+        : '<div class="empty">「再スキャン」でフォルダを確認します。</div>';
+  const folderColumn = group(
+    "フォルダ内のファイル",
+    plain.length,
+    folderBar + folderBody,
+    root ? '<button class="btn small" id="scanFiles">再スキャン</button>' : '',
+  );
 
   // Two columns are for when both sides have something to show. With one of them
   // empty the split just halves the width and puts an empty box in the other
   // half, so the one that has content takes the whole column.
   const columns = registered.length && plain.length ? 'file-columns' : 'file-columns one';
 
-  return `<div class="page-title"><h1>データ・ファイル</h1><button class="btn small" id="scanFiles">再スキャン</button></div>
-    <div class="muted page-note">研究フォルダにあるファイルの一覧です。rescicleはその場で参照するだけで、移動もコピーもしません。データとして登録したものが上に並びます。</div>
+  return `<div class="page-title"><h1>データ・ファイル</h1></div>
+    <div class="muted page-note">研究フォルダにあるファイルと、そのうちデータとして登録したものです。<strong>rescicleはファイルを読むだけです。</strong>書き換え・移動・コピー・削除はしません。</div>
     <div class="muted file-legend">
       <div><strong>データとして登録</strong> — そのファイルを研究のデータとして記録し、測定とつなげられるようにします。</div>
       <div>ファイルの中身は、AIが必要だと判断したときに読みます。研究フォルダの外は読めません。読んだファイルには「読み込み済み」が付きます。${readCount ? `いままでに${readCount}件を読みました。` : ''}</div>
@@ -984,8 +1007,8 @@ function folderSectionHtml() {
     ${root
       ? `<div class="connection-ok"><div class="muted">${esc(root)}</div></div>
          <div class="actions"><button class="btn small" id="changeRoot">別のフォルダに変更</button></div>
-         <div class="muted settings-note">ファイルはその場で参照するだけなので、変更してもフォルダの中身は動きません。登録済みのデータが新しいフォルダに見つからないときは、その件数をお知らせします。</div>`
-      : `<div class="muted settings-note">選ぶと、その中のファイルをデータとして登録できるようになります。ファイルは移動もコピーもされません。</div>
+         <div class="muted settings-note">rescicleはファイルを読むだけなので、変更してもどちらのフォルダの中身も動きません。登録済みのデータが新しいフォルダに見つからないときは、その件数をお知らせします。</div>`
+      : `<div class="muted settings-note">選ぶと、その中のファイルをデータとして登録できるようになります。rescicleはファイルを読むだけで、書き換えも移動もしません。</div>
          <div class="actions"><button class="btn small" id="changeRoot">研究フォルダを選ぶ</button></div>`}
   </div>`;
 }
@@ -1125,6 +1148,7 @@ function bind() {
       // The link is drawn and is now a row of its own. Leaving the picker open
       // over it would hide the one thing the click was for.
       state.linking = null;
+     
       await loadSelected(id);
     } catch (e) {
       state.error = errText(e);
@@ -1186,7 +1210,16 @@ function bind() {
   });
   document.getElementById('clearTarget')?.addEventListener('click', () => { state.selectedObjectId = null; state.selectedObject = null; render(); });
   document.getElementById('refreshAgent')?.addEventListener('click', refreshAgent);
-  document.getElementById('pickRootHere')?.addEventListener('click', changeProjectRoot);
+  // Selecting the node already pointed the conversation at it -- the chat head
+  // says 対象 -- so this is the rest of the move: the caret, where what you were
+  // about to ask goes.
+  document.getElementById('talkAbout')?.addEventListener('click', () => {
+    const box = document.getElementById('chatInput');
+    if (!box) return;
+    box.focus();
+    box.setSelectionRange(box.value.length, box.value.length);
+  });
+  document.getElementById('changeRootHere')?.addEventListener('click', changeProjectRoot);
   document.getElementById('resetStart')?.addEventListener('click', () => { state.resetting = true; state.error = null; render(); });
   document.getElementById('resetCancel')?.addEventListener('click', () => { state.resetting = false; render(); });
   document.getElementById('resetConfirm')?.addEventListener('click', resetData);
