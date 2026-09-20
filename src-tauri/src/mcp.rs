@@ -43,6 +43,14 @@ fn tools() -> Value {
             }, "required": ["objectId","status"], "additionalProperties": false }
         },
         {
+            "name": "set_measurement_performed",
+            "description": "Record whether a measurement has actually been carried out. This is separate from its status, which says whether the researcher decided to run it; a confirmed measurement that has not been done yet is the ordinary case. No date is taken here: the app reads one from the data file the measurement produced, if there is one.",
+            "inputSchema": { "type": "object", "properties": {
+                "objectId": { "type": "string" },
+                "performed": { "type": "boolean" }
+            }, "required": ["objectId","performed"], "additionalProperties": false }
+        },
+        {
             "name": "list_project_files",
             "description": "List file names and metadata inside the current research folder. Does not return file contents.",
             "inputSchema": { "type": "object", "properties": {
@@ -120,6 +128,12 @@ pub fn call_tool(db: &Db, data_dir: &Path, name: &str, args: &Value) -> Result<V
         "set_object_status" => db.update_object_status(
             &arg_str(args, "objectId"),
             &arg_str(args, "status"),
+            "researcher-via-mcp",
+        ),
+        "set_measurement_performed" => db.set_measurement_performed(
+            &arg_str(args, "objectId"),
+            args.get("performed").and_then(Value::as_bool).unwrap_or(false),
+            None,
             "researcher-via-mcp",
         ),
         "list_project_files" => {

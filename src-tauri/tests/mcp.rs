@@ -74,6 +74,29 @@ fn mcp_tools() {
     let files = call_tool(&db, data_dir, "list_project_files", &json!({ "limit": 10 })).unwrap();
     assert_eq!(files.as_array().unwrap().len(), 1);
 
+    // Claude Code can say a measurement was run, the way the conversation can.
+    // The two surfaces had drifted: this one could create and confirm but not
+    // record what had actually been done.
+    let m = call_tool(
+        &db,
+        data_dir,
+        "create_object",
+        &json!({ "type": "measurement", "title": "M", "origin": "researcher" }),
+    )
+    .unwrap();
+    let done = call_tool(
+        &db,
+        data_dir,
+        "set_measurement_performed",
+        &json!({ "objectId": m["id"], "performed": true }),
+    )
+    .unwrap();
+    assert_eq!(done["performed"], Value::Bool(true));
+    // No date is taken from the caller; one only appears when a file carries it.
+    assert!(done["performed_at"].is_null());
+    // Deciding to run it is a different axis and is left alone.
+    assert_eq!(done["status"], Value::String("proposed".into()));
+
     // Anything the MCP client proposes stays proposed until the researcher decides.
     assert_eq!(h["status"], Value::String("proposed".into()));
 

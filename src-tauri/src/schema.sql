@@ -47,6 +47,9 @@ CREATE TABLE IF NOT EXISTS assets (
   relative_path TEXT NOT NULL,
   size_bytes INTEGER NOT NULL,
   modified_at TEXT NOT NULL,
+  -- Neither is written yet: register_asset puts NULL in both and nothing reads
+  -- them. They are here so the shape does not have to change when a checksum or
+  -- a media type is worth having. Do not read them as data.
   sha256 TEXT,
   media_type TEXT,
   FOREIGN KEY (object_id) REFERENCES objects(id) ON DELETE CASCADE
