@@ -381,6 +381,7 @@ function mapHtml() {
   const nodes = [...g.pos.values()].map(({ x, y, o }) => `<g class="map-node ${esc(o.status)} ${state.selectedObjectId === o.id ? 'selected' : ''}" data-object-id="${o.id}">
       <rect x="${x}" y="${y}" width="${MAP.W}" height="${MAP.H}" rx="10"></rect>
       <text class="map-type" x="${x + MAP.PAD}" y="${y + 17}">${esc(TYPE_LABEL[o.type] || o.type)}</text>
+      ${o.performed_at ? `<text class="map-done" x="${x + MAP.W - MAP.PAD}" y="${y + 17}">実施済み</text>` : ''}
       ${wrapTitle(o.title).map((line, i) => `<text class="map-title" x="${x + MAP.PAD}" y="${y + 36 + i * MAP.LINE}">${esc(line)}</text>`).join('')}
     </g>`).join('');
   return `<div class="map-scroll"><svg class="map" width="${g.width}" height="${g.height}" viewBox="0 0 ${g.width} ${g.height}">${edges}${heads}${nodes}</svg></div>
@@ -424,6 +425,22 @@ function objectListHtml(type) {
 // buttons it had, so a researcher who changed their mind had no way back except
 // asking the agent to undo it. Deciding again goes through `proposed` rather
 // than flipping straight over: re-deciding is a decision too.
+// Deciding to run a measurement and having run it are different things, so the
+// pill sits next to the status rather than replacing it: 確定・未実施 is the
+// ordinary state of a measurement and has to be one thing the card can say.
+function performedPillHtml(o) {
+  if (o.type !== 'measurement') return '';
+  return o.performed_at
+    ? `<span class="pill done">実施済み ${esc(fmtDay(o.performed_at))}</span>`
+    : '<span class="pill">未実施</span>';
+}
+
+function performedButtonHtml(o) {
+  if (o.type !== 'measurement') return '';
+  const done = Boolean(o.performed_at);
+  return `<button class="btn small" data-performed="${done ? 'false' : 'true'}" data-target-id="${o.id}" title="${done ? 'まだ実施していないことにする' : '今日実施したことにする'}">${done ? '未実施に戻す' : '実施した'}</button>`;
+}
+
 function statusButtonsHtml(o) {
   const note = o.type === 'note';
   if (o.status === 'proposed') {
@@ -441,7 +458,7 @@ function cardHtml(o, { pinned = false } = {}) {
   const row = pinned
     ? '<div class="card-row">'
     : `<div class="card-row clickable" data-object-id="${o.id}" data-object-type="${esc(o.type)}">`;
-  return `<div class="card ${open ? 'open' : ''} ${o.status}">${row}<div class="card-main"><div class="type">${esc(TYPE_LABEL[o.type] || o.type)}</div><div class="card-title">${esc(o.title)}</div>${o.body ? `<div class="card-body">${esc(o.body)}</div>`:''}<div class="pills"><span class="pill ${o.status}">${esc(statusLabel(o))}</span><span class="pill ${o.origin==='agent'?'agent':''}">${esc(ORIGIN_LABEL[o.origin] || o.origin)}</span></div></div><div class="card-actions">${statusButtonsHtml(o)}</div></div>${full ? expansionHtml(full) : ''}</div>`;
+  return `<div class="card ${open ? 'open' : ''} ${o.status}">${row}<div class="card-main"><div class="type">${esc(TYPE_LABEL[o.type] || o.type)}</div><div class="card-title">${esc(o.title)}</div>${o.body ? `<div class="card-body">${esc(o.body)}</div>`:''}<div class="pills"><span class="pill ${o.status}">${esc(statusLabel(o))}</span><span class="pill ${o.origin==='agent'?'agent':''}">${esc(ORIGIN_LABEL[o.origin] || o.origin)}</span>${performedPillHtml(o)}</div></div><div class="card-actions">${performedButtonHtml(o)}${statusButtonsHtml(o)}</div></div>${full ? expansionHtml(full) : ''}</div>`;
 }
 
 // The far end a new chain link could have, one slot per edge this object's type
@@ -593,6 +610,12 @@ function registerPickerHtml(f) {
   </div>`;
 }
 
+// Only the day. The hour a button was pressed says nothing about when the
+// measurement ran, so showing it would be precision the value does not have.
+function fmtDay(iso) {
+  return typeof iso === 'string' ? iso.slice(0, 10) : '';
+}
+
 function fileRowHtml(f) {
   const share = f.shared
     ? `<button class="btn small primary" data-share-path="${esc(f.relative_path)}" data-share="false" title="共有をやめる">共有中</button>`
@@ -714,6 +737,20 @@ function bind() {
     state.workspace = await api.setRelationStatus(b.dataset.relationId, b.dataset.relationStatus);
     if (state.selectedObjectId) await loadSelected(state.selectedObjectId);
     else render();
+  }));
+  document.querySelectorAll('[data-performed]').forEach(b => b.addEventListener('click', async (event) => {
+    event.stopPropagation();
+    const id = b.dataset.targetId;
+    state.error = null;
+    try {
+      await api.setMeasurementPerformed(id, b.dataset.performed === 'true');
+      await refreshWorkspace();
+      if (state.selectedObject && state.selectedObject.id === id) await loadSelected(id);
+      else render();
+    } catch (e) {
+      state.error = errText(e);
+      render();
+    }
   }));
   document.querySelectorAll('[data-relation-drop]').forEach(b => b.addEventListener('click', async (event) => {
     // The row itself navigates, so the button has to keep the click.

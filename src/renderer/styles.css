@@ -70,6 +70,7 @@ button.project-title:hover { background: #eeede9; }
 .pill.proposed { border-style:dashed; }
 .pill.agent { border-style:dashed; }
 .pill.rejected { opacity:.55; text-decoration:line-through; }
+.pill.done { border-color:#b9c9b6; background:#f4f9f3; color:#3f6039; }
 /* Rejected work stays readable and reversible, but should not read as live:
    without this it looked identical to a hypothesis still in play. */
 .card.rejected { background:#faf9f7; border-style:dashed; }
@@ -196,6 +197,7 @@ button.project-title:hover { background: #eeede9; }
 .map-node:hover rect { stroke: #8d8c84; }
 .map-type { font-size: 9px; font-weight: 800; fill: #8c8a82; letter-spacing: .09em; }
 .map-title { font-size: 12px; font-weight: 650; fill: #181816; }
+.map-done { font-size: 9px; font-weight: 800; fill: #5f7d58; letter-spacing: .06em; text-anchor: end; }
 .map-edge { fill: none; stroke: #c9c8c0; stroke-width: 1.5; }
 .map-edge.proposed { stroke-dasharray: 4 3; }
 .map-legend { display: flex; gap: 14px; align-items: center; margin-top: 10px; font-size: 10px; color: #8c8a82; }

@@ -24,6 +24,8 @@ window.rescicle = {
   getObject: objectId => call('object_get', { objectId }),
   setObjectStatus: (objectId, status) => call('object_set_status', { objectId, status }),
   setRelationStatus: (relationId, status) => call('relation_set_status', { relationId, status }),
+  setMeasurementPerformed: (objectId, performed) =>
+    call('measurement_set_performed', { objectId, performed }),
   createRelation: (projectId, subjectId, predicate, objectId) =>
     call('relation_create', { projectId, subjectId, predicate, objectId }),
   deleteRelation: relationId => call('relation_delete', { relationId }),

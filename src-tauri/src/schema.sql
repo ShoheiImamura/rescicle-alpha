@@ -55,6 +55,17 @@ CREATE TABLE IF NOT EXISTS assets (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_assets_project_path
 ON assets(relative_path, object_id);
 
+-- Whether a measurement has actually been run, and when. This is a second
+-- axis, not another status: status says whether the researcher has decided to
+-- do it, and most confirmed measurements have not been done yet. A date rather
+-- than a flag, because "when did we measure this" is the thing a research
+-- record gets asked for, and it costs no extra input -- the button stamps it.
+CREATE TABLE IF NOT EXISTS measurements (
+  object_id TEXT PRIMARY KEY,
+  performed_at TEXT,
+  FOREIGN KEY (object_id) REFERENCES objects(id) ON DELETE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS messages (
   id TEXT PRIMARY KEY,
   project_id TEXT NOT NULL,

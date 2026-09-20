@@ -44,6 +44,7 @@ pub fn run() {
             commands::object_get,
             commands::object_set_status,
             commands::relation_set_status,
+            commands::measurement_set_performed,
             commands::relation_create,
             commands::relation_delete,
             commands::messages_list,

@@ -55,6 +55,7 @@ fn op(op: &str) -> Operation {
         predicate: None,
         object: None,
         path: None,
+        performed: None,
     }
 }
 
@@ -338,6 +339,67 @@ fn a_relation_can_be_removed_and_drawn_again() {
     );
     assert_ne!(again, relation_id);
     assert_eq!(db.list_relations(&project_id).unwrap().len(), 1);
+}
+
+// Deciding to run a measurement and having run it are different things, and a
+// confirmed measurement that has not been done yet is the ordinary case. Both
+// have to be sayable at once, which is why this is not a fourth status.
+#[test]
+fn a_measurement_is_run_or_not_regardless_of_its_status() {
+    let tmp = TempDir::new("performed");
+    let research = tmp.path().join("research");
+    std::fs::create_dir_all(&research).unwrap();
+    std::fs::write(research.join("run.csv"), "a,b
+1,2
+").unwrap();
+
+    let db = Db::open(&tmp.path().join("rescicle.sqlite")).unwrap();
+    let project_id = str_of(
+        &db.create_project("performed", research.to_str().unwrap()).unwrap(),
+        "id",
+    );
+    let m = db
+        .create_object(&project_id, &object("measurement", "M", "researcher", "confirmed"), "researcher")
+        .unwrap();
+    let m_id = str_of(&m, "id");
+    assert!(db.get_object(&m_id).unwrap().unwrap()["performed_at"].is_null());
+
+    let done = db
+        .set_measurement_performed(&m_id, Some("2026-09-10T00:00:00.000Z"), "researcher")
+        .unwrap();
+    assert_eq!(str_of(&done, "performed_at"), "2026-09-10T00:00:00.000Z");
+    // The decision it carried is untouched: the two axes do not share a field.
+    assert_eq!(str_of(&done, "status"), "confirmed");
+
+    let undone = db.set_measurement_performed(&m_id, None, "researcher").unwrap();
+    assert!(undone["performed_at"].is_null(), "a mis-click has to be undoable");
+
+    // Only a measurement is something that gets run.
+    let q = db
+        .create_object(&project_id, &object("question", "Q", "researcher", "confirmed"), "researcher")
+        .unwrap();
+    assert!(db
+        .set_measurement_performed(&str_of(&q, "id"), Some("2026-09-10T00:00:00.000Z"), "researcher")
+        .is_err());
+
+    // Data came out of it, so it was run; the two must not be left to disagree.
+    let asset = db.register_asset(&project_id, &research.join("run.csv")).unwrap();
+    db.create_relation(
+        &project_id,
+        &RelationInput {
+            subject_id: m_id.clone(),
+            predicate: "produces".into(),
+            object_id: str_of(&asset, "id"),
+            origin: "researcher".into(),
+            status: "confirmed".into(),
+        },
+        "researcher",
+    )
+    .unwrap();
+    assert!(
+        !db.get_object(&m_id).unwrap().unwrap()["performed_at"].is_null(),
+        "producing data should mark the measurement as run"
+    );
 }
 
 // Nothing under the research folder is opened without the researcher having

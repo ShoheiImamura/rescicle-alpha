@@ -135,6 +135,8 @@ pub struct Operation {
     pub object: Option<String>,
     #[serde(default)]
     pub path: Option<String>,
+    #[serde(default)]
+    pub performed: Option<bool>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -216,6 +218,23 @@ pub fn apply_operations(
                     actor_for(op.origin.as_ref()),
                 )
                 .map(|relation| (json!({ "ok": true, "op": op.op, "id": relation["id"] }), None))
+            }
+            // Whether a measurement has been run is a second axis, so it is its
+            // own op: saying "we already measured that" must not have to pass
+            // through the status the researcher decided on.
+            "set_performed" => {
+                let target = deref(&refs, &op.id);
+                let performed_at = op.performed.unwrap_or(false).then(crate::db::now);
+                db.set_measurement_performed(&target, performed_at.as_deref(), "researcher-via-agent")
+                    .map(|updated| {
+                        (
+                            json!({
+                                "ok": true, "op": op.op,
+                                "id": updated["id"], "performed_at": updated["performed_at"],
+                            }),
+                            None,
+                        )
+                    })
             }
             "set_status" => {
                 let target = deref(&refs, &op.id);
