@@ -218,6 +218,28 @@ function bindChatResize() {
   });
 }
 
+// A link in the conversation opens in the system browser. Following it here
+// would replace the app with a web page in a window that has no address bar and
+// no back button, and the only way out would be to close rescicle.
+//
+// Bound on the document, once: the messages are rebuilt by every render, and the
+// stream patches them in without going through bind() at all. auxclick is here
+// for the middle button, which is a navigation this window equally cannot afford.
+function bindExternalLinks() {
+  const open = event => {
+    const link = event.target.closest?.('[data-external]');
+    if (!link) return;
+    event.preventDefault();
+    const url = link.dataset.external;
+    // The scheme was matched when the anchor was written; checked again here
+    // because this is the side that actually hands it to the operating system.
+    if (!/^https?:\/\//i.test(url)) return;
+    api.openUrl(url).catch(e => { state.error = errText(e); render(); });
+  };
+  document.addEventListener('click', open);
+  document.addEventListener('auxclick', open);
+}
+
 function closeModal() {
   state.modal = null;
   state.clearing = false;
@@ -270,6 +292,7 @@ async function boot() {
 
   bindChatResize();
   restoreChatWidth();
+  bindExternalLinks();
 
   // Patch the streaming reply into the bubble directly. render() would rebuild
   // the tree on every chunk, throwing away the next message being typed and
@@ -1354,10 +1377,38 @@ function dataFilesHtml() {
 // Not a markdown renderer. Headings, links, tables and the rest stay literal,
 // which is the honest outcome: this is a conversation panel 390px wide, not a
 // document, and anything that wants that shape belongs in an object's body.
+// Links, since the agent got WebSearch: a reply that cites five papers was five
+// PMC addresses printed as text, and the only thing to do with one was select it
+// by hand. Both shapes the model writes are covered -- a markdown link and a bare
+// address -- in one pass over the escaped text, so neither can be found inside
+// what the other just produced.
+//
+// http and https only. The scheme is matched, not merely stripped of what looks
+// dangerous: `javascript:` survives esc() intact, and a list of schemes to refuse
+// is a list that the next one is missing from.
+//
+// The anchors do not navigate. This is a webview with no address bar and no way
+// back, so following a link inside it would replace the app with a web page and
+// leave no way to return; openExternally() in bind() takes the click and hands
+// the URL to the system browser instead.
+function chatLink(url, label) {
+  return `<a href="${url}" data-external="${url}" title="${url}">${label}</a>`;
+}
+
 function chatText(raw) {
   return esc(raw ?? '')
     .replace(/`([^`\n]+)`/g, '<code>$1</code>')
     .replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>')
+    // [label](url), or a bare address. One alternation rather than two passes.
+    .replace(
+      /\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)|(https?:\/\/[^\s<>"'）】]+)/g,
+      (whole, label, linked, bare) => {
+        // Trailing punctuation belongs to the sentence, not the address: a URL at
+        // the end of a line takes the full stop with it otherwise.
+        const url = (linked || bare).replace(/[.,;:、。）)\]]+$/, '');
+        if (!url) return whole;
+        return chatLink(url, label || url);
+      })
     .replace(/^[-*] +/gm, '・');
 }
 

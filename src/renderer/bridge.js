@@ -18,6 +18,11 @@ window.rescicle = {
   createProject: payload =>
     call('project_create', { name: payload?.name ?? null, rootPath: payload?.rootPath ?? null }),
   openProject: projectId => call('project_open', { projectId }),
+  // The system browser, not this webview. Reached through the plugin's own IPC
+  // name rather than window.__TAURI__.opener, so it does not depend on which
+  // plugin JS shims happen to be bundled -- capabilities/default.json already
+  // allows exactly this one command.
+  openUrl: url => call('plugin:opener|open_url', { url }),
   renameProject: (projectId, name) => call('project_rename', { projectId, name }),
   setProjectRoot: (projectId, rootPath) => call('project_set_root', { projectId, rootPath }),
   listObjects: (projectId, type) => call('objects_list', { projectId, type: type ?? null }),
