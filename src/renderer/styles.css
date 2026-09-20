@@ -299,6 +299,11 @@ button.project-title:hover { background: #eeede9; }
 /* Confirm/Reject sit on the card itself: most objects arrive as agent proposals,
    and triaging them one detail page at a time is the slowest path through the app. */
 .card-actions { flex: 0 0 auto; display: flex; gap: 6px; align-items: flex-start; }
+/* Between what a press costs nothing to make and what decides the claim. The
+   two are different axes -- 実施済み says nothing about whether the researcher
+   has accepted anything -- and with the buttons in one unbroken row that was
+   left to the labels alone to carry. */
+.action-split { width: 1px; height: 20px; margin: 6px 3px 0; background: #e2e1da; }
 
 /* Overview map. The relation set is a layered DAG fixed by allowed_relation(), so
    the layout is deterministic left to right and needs no force simulation. */

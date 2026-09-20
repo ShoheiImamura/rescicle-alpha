@@ -813,7 +813,32 @@ function statusButtonsHtml(o) {
 // listed under データ the type is already said by the heading, and what the card
 // cannot otherwise say is which file it is: two runs under different folders
 // share a name, and the title is only the name.
-function cardHtml(o, { pinned = false, extraActions = '', fileLine = null } = {}) {
+// Presses of three different weights used to sit in this row as peers, and two
+// of them were filled dark -- so これについて話す, which changes nothing and is
+// undone by clicking somewhere else, looked exactly like 確定, which settles a
+// claim. That sameness is the problem, not the number of buttons.
+//
+// Left to right by what a press costs. これについて話す and 実施した are cheap and
+// reversible: one moves the conversation, the other records something that
+// happened in the lab and has 未実施に戻す waiting next to it. The decisions sit
+// past a rule, because they are the other axis -- whether the researcher has
+// accepted the claim at all, which 実施済み deliberately says nothing about.
+//
+// The fill is spent once, on the affirmative decision. 却下 keeps red, which in
+// this app means what cannot be taken back.
+function cardActionsHtml(o, pinned) {
+  const move = pinned ? '<button class="btn small" id="talkAbout">これについて話す</button>' : '';
+  // On the map an asset offers only the move. Administering the record is
+  // bookkeeping, and the map is not where the books are kept; the データ・ファイル
+  // list the file lives on still has 登録を取り消す.
+  const onRecord = pinned && o.type === 'asset' ? '' : performedButtonHtml(o);
+  const decide = pinned && o.type === 'asset' ? '' : statusButtonsHtml(o);
+  const cheap = move + onRecord;
+  if (!cheap || !decide) return cheap + decide;
+  return `${cheap}<span class="action-split" aria-hidden="true"></span>${decide}`;
+}
+
+function cardHtml(o, { pinned = false, fileLine = null } = {}) {
   const open = state.selectedObjectId === o.id;
   // getObject() carries the relations, and it lands one render later than the click.
   const full = open && state.selectedObject?.id === o.id ? state.selectedObject : null;
@@ -844,14 +869,7 @@ function cardHtml(o, { pinned = false, extraActions = '', fileLine = null } = {}
   const origin = quiet
     ? ''
     : `<span class="pill ${o.origin === 'agent' ? 'agent' : ''}">${esc(ORIGIN_LABEL[o.origin] || o.origin)}</span>`;
-  // On the map, what a node is for is being looked at, and the move that follows
-  // is talking about it. Deciding a claim stays -- confirming what the agent
-  // proposed is the loop the map is the front of -- but administering a record
-  // does not: 登録を取り消す on an asset is bookkeeping, and the map is not where
-  // the books are kept. The list the object lives on still has it.
-  const actions = pinned
-    ? `<button class="btn small primary" id="talkAbout">これについて話す</button>${o.type === 'asset' ? '' : performedButtonHtml(o) + statusButtonsHtml(o)}`
-    : `${extraActions}${performedButtonHtml(o)}${statusButtonsHtml(o)}`;
+  const actions = cardActionsHtml(o, pinned);
   return `<div class="card ${open ? 'open' : ''} ${o.status}">${row}<div class="card-main">${head}<div class="card-title">${esc(o.title)}</div>${o.body ? `<div class="card-body">${esc(o.body)}</div>`:''}${o.note ? `<div class="card-note">${esc(o.note)}</div>`:''}<div class="pills">${status}${origin}${performedPillHtml(o)}</div></div><div class="card-actions">${actions}</div></div>${full ? expansionHtml(full) : ''}</div>`;
 }
 
