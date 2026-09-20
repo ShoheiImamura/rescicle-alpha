@@ -447,6 +447,19 @@ impl Db {
         )
     }
 
+    // Which files are already an asset, and what each one became. The files page
+    // needs both: a file that is registered must not offer to register again,
+    // and its row is the way through to the object it turned into.
+    pub fn asset_paths(&self, project_id: &str) -> Result<Vec<Value>> {
+        query_all(
+            &self.conn,
+            "SELECT a.relative_path AS relative_path, o.id AS object_id
+             FROM assets a JOIN objects o ON a.object_id=o.id
+             WHERE o.project_id=?",
+            &[&project_id],
+        )
+    }
+
     pub fn register_asset(&self, project_id: &str, absolute_path: &Path) -> Result<Value> {
         let project = self.require_project(project_id)?;
         let root = resolve(Path::new(&text(&project, "root_path")));

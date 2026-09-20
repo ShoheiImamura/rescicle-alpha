@@ -50,6 +50,8 @@ let state = {
   // The object whose link picker is open, if any. Nothing is half-entered while
   // it is open -- picking is the whole act -- so this is all there is to keep.
   linking: null,
+  // The file whose "which measurement produced this" list is open, if any.
+  registering: null,
   files: [],
   // The message a turn is running for. It is held here rather than left to the
   // workspace, because the workspace only comes back when the whole turn is
@@ -556,16 +558,42 @@ ${fmtSize(o.asset.size_bytes)} · ${esc(o.asset.modified_at)}</div>` : ''}
   </div>`;
 }
 
+// Registering a file makes a Research Object, and one that nothing points at
+// floats off the end of the map -- which is where the first four ended up. The
+// chain allows exactly one link into an asset, measurement produces asset, so
+// the measurement is asked for here instead of being left to be found from the
+// other side afterwards. Asked for, not required: a file can be registered on
+// its own, and there is nothing to ask before the first measurement exists.
+function measurementsOnHand() {
+  return (state.workspace.objects || []).filter(o => o.type === 'measurement' && o.status !== 'rejected');
+}
+
+function registerPickerHtml(f) {
+  if (state.registering !== f.relative_path) return '';
+  return `<div class="file-link">
+    <div class="file-link-head">どの測定が生み出したデータですか</div>
+    ${measurementsOnHand().map(m => `<button class="link-pick" data-register-with="${esc(f.relative_path)}" data-measurement="${esc(m.id)}">
+      <span class="rel-plus" aria-hidden="true">＋</span><span class="type">${esc(TYPE_LABEL.measurement)}</span><span class="rel-title">${esc(m.title)}</span>
+    </button>`).join('')}
+    <button class="link-skip" data-register-with="${esc(f.relative_path)}" data-measurement="">つなげずに登録する</button>
+  </div>`;
+}
+
 function fileRowHtml(f) {
   const share = f.shared
     ? `<button class="btn small primary" data-share-path="${esc(f.relative_path)}" data-share="false" title="共有をやめる">共有中</button>`
     : `<button class="btn small" data-share-path="${esc(f.relative_path)}" data-share="true" title="先頭4KBまでをAIに渡します">中身を見せる</button>`;
-  return `<div class="file ${f.shared ? 'shared' : ''}">
+  // Registering twice hands back the object that is already there, so the row
+  // says what happened to the file and offers a way to it instead.
+  const register = f.asset_id
+    ? `<button class="btn small" data-open-asset="${esc(f.asset_id)}" title="登録済みです">データを見る</button>`
+    : `<button class="btn small${state.registering === f.relative_path ? ' primary' : ''}" data-register-path="${esc(f.relative_path)}">データとして登録</button>`;
+  return `<div class="file-entry"><div class="file ${f.shared ? 'shared' : ''}">
     <div class="file-name" title="${esc(f.relative_path)}">${esc(f.relative_path)}</div>
     <div class="file-meta">${fmtSize(f.size_bytes)}</div>
     ${share}
-    <button class="btn small" data-register-path="${esc(f.relative_path)}">データとして登録</button>
-  </div>`;
+    ${register}
+  </div>${registerPickerHtml(f)}</div>`;
 }
 
 function filesHtml() {
@@ -577,6 +605,7 @@ function filesHtml() {
     : '一覧はファイル名と基本メタデータだけです。本文は、共有したファイルに限って送られます。';
   return `<div class="page-title"><h1>ファイル</h1><button class="btn small" id="scanFiles">再スキャン</button></div>
     <div class="muted page-note">${note}</div>
+    ${state.error ? `<div class="error">${esc(state.error)}</div>` : ''}
     ${state.files.length
       ? `<div class="files">${state.files.map(fileRowHtml).join('')}</div>`
       : '<div class="empty">「再スキャン」で研究フォルダを確認します。</div>'}`;
@@ -635,7 +664,7 @@ function bind() {
   });
   document.querySelectorAll('[data-nav]').forEach(b => b.addEventListener('click', async () => {
     // Leaving the query set would show results while the nav looked switched.
-    state.currentType = b.dataset.nav; state.query = ""; state.selectedObjectId = null; state.selectedObject = null; state.linking = null; state.error = null;
+    state.currentType = b.dataset.nav; state.query = ""; state.selectedObjectId = null; state.selectedObject = null; state.linking = null; state.registering = null; state.error = null;
     try {
       if (state.currentType === 'files' && !state.files.length) state.files = await api.scanFiles(state.workspace.project.id);
     } catch (e) {
@@ -738,7 +767,19 @@ function bind() {
     render();
   }));
   document.querySelectorAll('[data-register-path]').forEach(b => b.addEventListener('click', async () => {
-    await api.registerAsset(state.workspace.project.id, b.dataset.registerPath); await refreshWorkspace(); render();
+    const path = b.dataset.registerPath;
+    // With no measurement to point at there is nothing to ask, so asking would
+    // only be a step to dismiss.
+    if (!measurementsOnHand().length) { await registerFile(path, null); return; }
+    state.registering = state.registering === path ? null : path;
+    state.error = null;
+    render();
+  }));
+  document.querySelectorAll('[data-register-with]').forEach(b => b.addEventListener('click', () =>
+    registerFile(b.dataset.registerWith, b.dataset.measurement || null)));
+  document.querySelectorAll('[data-open-asset]').forEach(b => b.addEventListener('click', () => {
+    state.currentType = 'asset'; state.query = ''; state.linking = null; state.registering = null; state.error = null;
+    loadSelected(b.dataset.openAsset);
   }));
   document.getElementById('sendBtn')?.addEventListener('click', sendMessage);
   document.getElementById('chatInput')?.addEventListener('keydown', e => { if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') sendMessage(); });
@@ -806,6 +847,25 @@ async function loadSelected(id) {
   state.selectedObject = await api.getObject(id);
   render();
 }
+// Registering and linking are two writes, and the second one can only be the
+// chain's single edge into an asset, so there is no predicate to choose here
+// either. A refusal from the Rust side has to reach the page: the file list is
+// redrawn from the scan, not from what the button assumed happened.
+async function registerFile(relativePath, measurementId) {
+  state.error = null;
+  try {
+    const projectId = state.workspace.project.id;
+    const asset = await api.registerAsset(projectId, relativePath);
+    if (measurementId) state.workspace = await api.createRelation(projectId, measurementId, 'produces', asset.id);
+    else await refreshWorkspace();
+    state.files = await api.scanFiles(projectId);
+    state.registering = null;
+  } catch (e) {
+    state.error = errText(e);
+  }
+  render();
+}
+
 async function refreshWorkspace() {
   state.workspace = await api.openProject(state.workspace.project.id);
 }

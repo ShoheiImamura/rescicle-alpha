@@ -223,13 +223,25 @@ pub fn files_scan(state: State<'_, AppState>, project_id: String) -> Result<Valu
         .ok_or_else(|| Error("project not found".into()))?;
     let shared: std::collections::HashSet<String> =
         db.shared_files(&project_id)?.into_iter().collect();
+    let registered: std::collections::HashMap<String, String> = db
+        .asset_paths(&project_id)?
+        .into_iter()
+        .map(|row| {
+            (
+                row["relative_path"].as_str().unwrap_or_default().to_string(),
+                row["object_id"].as_str().unwrap_or_default().to_string(),
+            )
+        })
+        .collect();
     let listed: Vec<Value> = scan_files(&project_root(&project), 300)
         .into_iter()
         .map(|file| {
             let is_shared = shared.contains(&file.relative_path);
+            let asset_id = registered.get(&file.relative_path).cloned();
             let mut value = serde_json::to_value(file).unwrap_or(Value::Null);
             if let Some(map) = value.as_object_mut() {
                 map.insert("shared".into(), json!(is_shared));
+                map.insert("asset_id".into(), json!(asset_id));
             }
             value
         })
