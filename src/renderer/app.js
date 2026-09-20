@@ -381,7 +381,7 @@ function mapHtml() {
   const nodes = [...g.pos.values()].map(({ x, y, o }) => `<g class="map-node ${esc(o.status)} ${state.selectedObjectId === o.id ? 'selected' : ''}" data-object-id="${o.id}">
       <rect x="${x}" y="${y}" width="${MAP.W}" height="${MAP.H}" rx="10"></rect>
       <text class="map-type" x="${x + MAP.PAD}" y="${y + 17}">${esc(TYPE_LABEL[o.type] || o.type)}</text>
-      ${o.performed_at ? `<text class="map-done" x="${x + MAP.W - MAP.PAD}" y="${y + 17}">実施済み</text>` : ''}
+      ${o.performed ? `<text class="map-done" x="${x + MAP.W - MAP.PAD}" y="${y + 17}">実施済み</text>` : ''}
       ${wrapTitle(o.title).map((line, i) => `<text class="map-title" x="${x + MAP.PAD}" y="${y + 36 + i * MAP.LINE}">${esc(line)}</text>`).join('')}
     </g>`).join('');
   return `<div class="map-scroll"><svg class="map" width="${g.width}" height="${g.height}" viewBox="0 0 ${g.width} ${g.height}">${edges}${heads}${nodes}</svg></div>
@@ -428,17 +428,21 @@ function objectListHtml(type) {
 // Deciding to run a measurement and having run it are different things, so the
 // pill sits next to the status rather than replacing it: 確定・未実施 is the
 // ordinary state of a measurement and has to be one thing the card can say.
+//
+// Run and run-on-a-known-date are different again. Most of the time the date is
+// not known -- saying so is honest, and better than showing the day somebody
+// pressed a button as though it were the day of the measurement.
 function performedPillHtml(o) {
   if (o.type !== 'measurement') return '';
+  if (!o.performed) return '<span class="pill">未実施</span>';
   return o.performed_at
-    ? `<span class="pill done">実施済み ${esc(fmtDay(o.performed_at))}</span>`
-    : '<span class="pill">未実施</span>';
+    ? `<span class="pill done" title="このデータファイルの更新日時です">実施済み ${esc(fmtDay(o.performed_at))}</span>`
+    : '<span class="pill done">実施済み</span>';
 }
 
 function performedButtonHtml(o) {
   if (o.type !== 'measurement') return '';
-  const done = Boolean(o.performed_at);
-  return `<button class="btn small" data-performed="${done ? 'false' : 'true'}" data-target-id="${o.id}" title="${done ? 'まだ実施していないことにする' : '今日実施したことにする'}">${done ? '未実施に戻す' : '実施した'}</button>`;
+  return `<button class="btn small" data-performed="${o.performed ? 'false' : 'true'}" data-target-id="${o.id}" title="${o.performed ? 'まだ実施していないことにする' : '実施したことにする'}">${o.performed ? '未実施に戻す' : '実施した'}</button>`;
 }
 
 function statusButtonsHtml(o) {
@@ -610,8 +614,9 @@ function registerPickerHtml(f) {
   </div>`;
 }
 
-// Only the day. The hour a button was pressed says nothing about when the
-// measurement ran, so showing it would be precision the value does not have.
+// Only the day. A file's modification time is good to the second, but the
+// measurement it came out of is not, so the rest of it would be precision the
+// value does not have.
 function fmtDay(iso) {
   return typeof iso === 'string' ? iso.slice(0, 10) : '';
 }

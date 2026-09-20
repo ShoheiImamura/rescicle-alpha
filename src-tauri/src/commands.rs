@@ -176,17 +176,17 @@ pub fn object_set_status(state: State<'_, AppState>, object_id: String, status: 
     lock(&state.db)?.update_object_status(&object_id, &status, "researcher")
 }
 
-// The renderer says whether it was done, not when. The date is the moment it
-// said so, which is the only one the app can honestly know by itself; a
-// measurement run last week gets its real date from whoever types it in.
+// The researcher says it was done; nobody says when. Stamping the moment the
+// button was pressed would put a date on the card that is not the measurement's,
+// so none is recorded here at all -- the date comes from the file the
+// measurement produced, if there is one.
 #[tauri::command]
 pub fn measurement_set_performed(
     state: State<'_, AppState>,
     object_id: String,
     performed: bool,
 ) -> Result<Value> {
-    let performed_at = if performed { Some(crate::db::now()) } else { None };
-    lock(&state.db)?.set_measurement_performed(&object_id, performed_at.as_deref(), "researcher")
+    lock(&state.db)?.set_measurement_performed(&object_id, performed, None, "researcher")
 }
 
 #[tauri::command]

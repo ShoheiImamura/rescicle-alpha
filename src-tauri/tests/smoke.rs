@@ -362,28 +362,33 @@ fn a_measurement_is_run_or_not_regardless_of_its_status() {
         .create_object(&project_id, &object("measurement", "M", "researcher", "confirmed"), "researcher")
         .unwrap();
     let m_id = str_of(&m, "id");
-    assert!(db.get_object(&m_id).unwrap().unwrap()["performed_at"].is_null());
+    let fetched = db.get_object(&m_id).unwrap().unwrap();
+    assert_eq!(fetched["performed"], Value::Bool(false));
+    assert!(fetched["performed_at"].is_null());
 
-    let done = db
-        .set_measurement_performed(&m_id, Some("2026-09-10T00:00:00.000Z"), "researcher")
-        .unwrap();
-    assert_eq!(str_of(&done, "performed_at"), "2026-09-10T00:00:00.000Z");
+    // Saying it was run says nothing about when. The moment the button was
+    // pressed is not the measurement's date and is not recorded as if it were.
+    let done = db.set_measurement_performed(&m_id, true, None, "researcher").unwrap();
+    assert_eq!(done["performed"], Value::Bool(true));
+    assert!(done["performed_at"].is_null(), "no date was known, so none was invented");
     // The decision it carried is untouched: the two axes do not share a field.
     assert_eq!(str_of(&done, "status"), "confirmed");
 
-    let undone = db.set_measurement_performed(&m_id, None, "researcher").unwrap();
-    assert!(undone["performed_at"].is_null(), "a mis-click has to be undoable");
+    let undone = db.set_measurement_performed(&m_id, false, None, "researcher").unwrap();
+    assert_eq!(undone["performed"], Value::Bool(false), "a mis-click has to be undoable");
 
     // Only a measurement is something that gets run.
     let q = db
         .create_object(&project_id, &object("question", "Q", "researcher", "confirmed"), "researcher")
         .unwrap();
     assert!(db
-        .set_measurement_performed(&str_of(&q, "id"), Some("2026-09-10T00:00:00.000Z"), "researcher")
+        .set_measurement_performed(&str_of(&q, "id"), true, None, "researcher")
         .is_err());
 
-    // Data came out of it, so it was run; the two must not be left to disagree.
+    // Data came out of it, so it was run -- and the file carries the date.
+    db.set_measurement_performed(&m_id, true, None, "researcher").unwrap();
     let asset = db.register_asset(&project_id, &research.join("run.csv")).unwrap();
+    let file_date = str_of(&db.get_object(&str_of(&asset, "id")).unwrap().unwrap()["asset"], "modified_at");
     db.create_relation(
         &project_id,
         &RelationInput {
@@ -396,9 +401,37 @@ fn a_measurement_is_run_or_not_regardless_of_its_status() {
         "researcher",
     )
     .unwrap();
-    assert!(
-        !db.get_object(&m_id).unwrap().unwrap()["performed_at"].is_null(),
-        "producing data should mark the measurement as run"
+    let after = db.get_object(&m_id).unwrap().unwrap();
+    assert_eq!(after["performed"], Value::Bool(true));
+    assert_eq!(
+        str_of(&after, "performed_at"),
+        file_date,
+        "the date should come from the file the measurement produced"
+    );
+
+    // A date already recorded is the one somebody chose, so linking a file does
+    // not overwrite it.
+    db.set_measurement_performed(&m_id, true, Some("2026-09-10T00:00:00.000Z"), "researcher")
+        .unwrap();
+    std::fs::write(research.join("run2.csv"), "a,b
+3,4
+").unwrap();
+    let second = db.register_asset(&project_id, &research.join("run2.csv")).unwrap();
+    db.create_relation(
+        &project_id,
+        &RelationInput {
+            subject_id: m_id.clone(),
+            predicate: "produces".into(),
+            object_id: str_of(&second, "id"),
+            origin: "researcher".into(),
+            status: "confirmed".into(),
+        },
+        "researcher",
+    )
+    .unwrap();
+    assert_eq!(
+        str_of(&db.get_object(&m_id).unwrap().unwrap(), "performed_at"),
+        "2026-09-10T00:00:00.000Z"
     );
 }
 

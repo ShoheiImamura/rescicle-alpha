@@ -224,8 +224,7 @@ pub fn apply_operations(
             // through the status the researcher decided on.
             "set_performed" => {
                 let target = deref(&refs, &op.id);
-                let performed_at = op.performed.unwrap_or(false).then(crate::db::now);
-                db.set_measurement_performed(&target, performed_at.as_deref(), "researcher-via-agent")
+                db.set_measurement_performed(&target, op.performed.unwrap_or(false), None, "researcher-via-agent")
                     .map(|updated| {
                         (
                             json!({

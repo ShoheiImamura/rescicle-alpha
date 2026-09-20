@@ -335,11 +335,18 @@ impl Db {
     // Having run a measurement is not the same as having decided to run it, so
     // this is its own axis rather than a fourth status: most confirmed
     // measurements have not been done yet, and both facts have to be sayable at
-    // once. None takes it back to not done, because a mis-click has to be
+    // once. false takes it back to not done, because a mis-click has to be
     // undoable like everything else here.
+    //
+    // The row is what says it was run; performed_at is a separate fact that is
+    // usually not known. The moment a button was pressed says nothing about when
+    // the measurement ran, so it is not recorded as if it did -- a date only
+    // appears when one is actually known, which today means the file the
+    // measurement produced.
     pub fn set_measurement_performed(
         &self,
         object_id: &str,
+        performed: bool,
         performed_at: Option<&str>,
         actor: &str,
     ) -> Result<Value> {
@@ -348,24 +355,25 @@ impl Db {
         if text(&object, "type") != "measurement" {
             return err("only a measurement can be performed");
         }
-        match performed_at {
-            Some(at) => self.conn.execute(
+        if performed {
+            self.conn.execute(
                 "INSERT INTO measurements(object_id,performed_at) VALUES(?,?)
                  ON CONFLICT(object_id) DO UPDATE SET performed_at=excluded.performed_at",
-                params![object_id, at],
-            )?,
-            None => self.conn.execute(
+                params![object_id, performed_at],
+            )?;
+        } else {
+            self.conn.execute(
                 "DELETE FROM measurements WHERE object_id=?",
                 params![object_id],
-            )?,
-        };
+            )?;
+        }
         self.conn.execute(
             "UPDATE objects SET updated_at=? WHERE id=?",
             params![now(), object_id],
         )?;
         self.event(
             &text(&object, "project_id"),
-            if performed_at.is_some() { "measurement_performed" } else { "measurement_not_performed" },
+            if performed { "measurement_performed" } else { "measurement_not_performed" },
             actor,
             Some(object_id),
             None,
@@ -379,14 +387,14 @@ impl Db {
         match type_ {
             Some(t) => query_all(
                 &self.conn,
-                "SELECT o.*, m.performed_at performed_at
+                "SELECT o.*, m.object_id IS NOT NULL performed, m.performed_at performed_at
                  FROM objects o LEFT JOIN measurements m ON m.object_id=o.id
                  WHERE o.project_id=? AND o.type=? ORDER BY o.updated_at DESC",
                 &[&project_id, &t],
             ),
             None => query_all(
                 &self.conn,
-                "SELECT o.*, m.performed_at performed_at
+                "SELECT o.*, m.object_id IS NOT NULL performed, m.performed_at performed_at
                  FROM objects o LEFT JOIN measurements m ON m.object_id=o.id
                  WHERE o.project_id=? ORDER BY o.updated_at DESC",
                 &[&project_id],
@@ -418,15 +426,15 @@ impl Db {
         map.insert("outgoing".into(), json!(outgoing));
         map.insert("incoming".into(), json!(incoming));
         if map.get("type").and_then(Value::as_str) == Some("measurement") {
-            let performed = query_one(
+            let row = query_one(
                 &self.conn,
                 "SELECT performed_at FROM measurements WHERE object_id=?",
                 &[&object_id],
             )?;
+            map.insert("performed".into(), json!(row.is_some()));
             map.insert(
                 "performed_at".into(),
-                performed
-                    .and_then(|row| row.get("performed_at").cloned())
+                row.and_then(|row| row.get("performed_at").cloned())
                     .unwrap_or(Value::Null),
             );
         }
@@ -488,12 +496,22 @@ impl Db {
             ],
         )?;
         // A measurement that produced data was run, so the two must not be left
-        // to disagree. It only ever sets: a measurement already marked keeps the
-        // date it was given, which is the one the researcher chose.
+        // to disagree -- and the file carries the only date anyone here has a
+        // claim to. When it was last written is when the measurement ran, near
+        // enough, and it beats the moment somebody pressed a button by a long
+        // way. A date already recorded wins: that one was chosen.
         if input.predicate == "produces" && text(&subject, "type") == "measurement" {
+            let modified = query_one(
+                &self.conn,
+                "SELECT modified_at FROM assets WHERE object_id=?",
+                &[&input.object_id],
+            )?
+            .map(|row| text(&row, "modified_at"));
             self.conn.execute(
-                "INSERT OR IGNORE INTO measurements(object_id,performed_at) VALUES(?,?)",
-                params![input.subject_id, now()],
+                "INSERT INTO measurements(object_id,performed_at) VALUES(?,?)
+                 ON CONFLICT(object_id) DO UPDATE
+                 SET performed_at=COALESCE(measurements.performed_at, excluded.performed_at)",
+                params![input.subject_id, modified],
             )?;
         }
         self.event(
