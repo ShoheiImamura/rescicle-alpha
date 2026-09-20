@@ -199,7 +199,10 @@ async function boot() {
     state.stream = text;
     const node = document.getElementById('streamText');
     if (!node) { render(); return; }
-    node.textContent = text;
+    // chatText escapes before it formats, so this is the same safety textContent
+    // gave and the same three tags the saved message will render with -- without
+    // it the reply reformats the moment the turn ends.
+    node.innerHTML = chatText(text);
     const label = document.getElementById('thinkingLabel');
     if (label) label.textContent = '';
     const messages = document.getElementById('messages');
@@ -1048,14 +1051,34 @@ function dataFilesHtml() {
     <div class="${columns}"><div>${dataColumn}</div><div>${folderColumn}</div></div>`;
 }
 
+// The three pieces of markdown the agent actually writes, and nothing else.
+// Replies came through with ** and - as literal characters, because the whole
+// message was escaped and laid out with pre-wrap. Telling the model to stop
+// using them fights how it writes and needs policing every turn; a reply listing
+// four things it wants to know is easier to read with the bullets than without.
+//
+// Everything is escaped first and the patterns then run over the escaped text,
+// so the only markup that can reach the page is the three tags below. A reply
+// containing `<script>` is already &lt;script&gt; before this sees it.
+//
+// Not a markdown renderer. Headings, links, tables and the rest stay literal,
+// which is the honest outcome: this is a conversation panel 390px wide, not a
+// document, and anything that wants that shape belongs in an object's body.
+function chatText(raw) {
+  return esc(raw ?? '')
+    .replace(/`([^`\n]+)`/g, '<code>$1</code>')
+    .replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/^[-*] +/gm, '・');
+}
+
 function chatHtml() {
   const selected = state.selectedObject ? state.selectedObject.title : null;
   const messages = state.workspace.messages || [];
-  const thread = messages.map(m => `<div class="message ${m.role}">${esc(m.content)}</div>`);
+  const thread = messages.map(m => `<div class="message ${m.role}">${chatText(m.content)}</div>`);
   if (state.pending) {
     thread.push(`<div class="message user">${esc(state.pending.text)}</div>`);
     thread.push(`<div class="message assistant thinking">
-      <span class="stream" id="streamText">${esc(state.stream)}</span>
+      <span class="stream" id="streamText">${chatText(state.stream)}</span>
       <span class="status"><span class="dots"><i></i><i></i><i></i></span><span id="thinkingLabel">${state.stream ? '' : '考えています'}</span><span class="elapsed" id="thinkingElapsed">${fmtElapsed(Date.now() - state.pending.startedAt)}</span></span>
     </div>`);
   }
