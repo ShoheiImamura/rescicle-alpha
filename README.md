@@ -101,24 +101,51 @@ Relation:
 
 ## 開発
 
-Node.js 24 と Rust（stable / MSVCツールチェーン）が必要です。Windowsでは Visual Studio Build Tools の C++ ワークロードも入れてください。
+### 必要なもの
+
+Node.js 24 と、Rust の stable（MSVCツールチェーン）です。Windowsでまだ揃っていない場合:
+
+```powershell
+winget install --id Rustlang.Rustup -e
+winget install --id Microsoft.VisualStudio.2022.BuildTools -e --override "--quiet --wait --norestart --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"
+```
+
+Build Tools は数GBあり、15〜30分かかります。`rusqlite` がSQLiteをCからビルドするため、C++ワークロードとWindows SDKの両方が要ります。
+
+> 入れた直後は、開いていたシェルを閉じて開き直してください。インストール前から起動していたシェルでは `cargo build` が `LNK1181: 入力ファイル 'kernel32.lib' を開けません` で落ちます。リンカがSDKの場所を拾えないためで、それでも直らない場合は **x64 Native Tools Command Prompt for VS 2022** から実行してください。
+
+画面はWebView2で描画します。Windows 11には標準で入っています。
+
+### 起動とビルド
 
 ```bash
 npm install
-npm test      # cargo test
-npm run dev   # 開発用に起動
+npm run dev    # ビルドしてアプリを起動する（開発用）
+npm test       # cargo test
+npm run build  # インストーラを src-tauri/target/release/bundle/nsis/ に出力
 ```
 
-Windowsインストーラのローカルビルド（`src-tauri/target/release/bundle/nsis/` に出力されます）:
+`npm run dev` の初回は依存クレートを400ほどビルドするので数分かかります。2回目以降は差分だけです。
 
-```bash
-npm run build
+### 自分のデータを汚さずに動かす
+
+`RESCICLE_DATA_DIR` を指定すると、`%AppData%\rescicle` ではなくそのフォルダをデータ置き場として使います。手元の研究記録に触れずに、まっさらな状態から試せます。
+
+```powershell
+$env:RESCICLE_DATA_DIR = "$env:TEMP\rescicle-scratch"
+npm run dev
 ```
 
-実物の `claude` CLIを起動するテストは、CIに `claude` が無いため既定で除外してあります。手元で確認する場合:
+### テスト
+
+`npm test` は実物の `claude` CLIを起動するテストを除外します（CIに `claude` もサインインも無いため）。手元で主経路を通しで確認する場合:
 
 ```bash
+# CLIの発見と起動のみ
 cargo test --manifest-path src-tauri/Cargo.toml --test claude_cli -- --ignored --nocapture
+
+# 会話1往復を実際に回す（Claudeのターンを1回消費します）
+cargo test --manifest-path src-tauri/Cargo.toml --test claude_cli a_real_turn -- --ignored --nocapture
 ```
 
 ### リリース
