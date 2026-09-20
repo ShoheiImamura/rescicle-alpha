@@ -1,7 +1,7 @@
 name: release
 
 # Builds the Windows installer and publishes it to the GitHub Release for the
-# pushed tag. Tag v0.0.5 must correspond to "version": "0.0.5" in package.json;
+# pushed tag. Tag v0.0.6 must correspond to "version": "0.0.6" in package.json;
 # the guard step below fails fast on a mismatch.
 on:
   push:
