@@ -458,8 +458,29 @@ function wrapTitle(title, perLine = 13, maxLines = 2) {
   return out;
 }
 
+// An archived object leaves the map, unless something still live hangs off it.
+// Archiving the question at the head of a branch used to drop it and leave its
+// hypotheses standing in the middle of the page with nothing above them -- the
+// chain still existed, and the one picture of the chain had stopped showing it.
+//
+// So it stays, drawn faint, for exactly as long as it is holding something up.
+// Archive the hypotheses too and it goes with them; archive a leaf and it is
+// gone at once. The map never fills with finished work, and it never lies about
+// what is attached to what. A faint node reads as what it is: this branch is not
+// finished yet.
+function anchorsSomethingLive(id, objects, relations) {
+  const live = new Set(objects.filter(isLive).map(o => o.id));
+  return (relations || []).some(r =>
+    r.status !== 'rejected'
+    && ((r.subject_id === id && live.has(r.object_id))
+      || (r.object_id === id && live.has(r.subject_id))));
+}
+
 function buildMap(objects, relations) {
-  const alive = objects.filter(o => isLive(o) && CHAIN.includes(o.type));
+  const alive = objects.filter(o =>
+    CHAIN.includes(o.type)
+    && (isLive(o)
+      || (o.status === 'archived' && anchorsSomethingLive(o.id, objects, relations))));
   const byId = new Map(alive.map(o => [o.id, o]));
   const rank = new Map(CHAIN.map((type, i) => [type, i]));
 
@@ -752,6 +773,12 @@ function expansionHtml(o) {
   // row put the agent's mistake in both of the cards it touched for good.
   // Nothing is lost by taking it out, because ＋つなぐ draws it again.
   const relActs = r => {
+    // An archived card is a record of something finished, so it shows what it
+    // was attached to and offers nothing. Deciding a live hypothesis from inside
+    // a question that has been put away is reaching out of a closed box -- and
+    // the same rows are on the live card at the other end of every one of these
+    // lines, which is where the decision belongs.
+    if (o.status === 'archived') return '';
     // Red is for 却下 on an object, which cannot be made again by hand. Taking
     // a line out is two clicks from being back, so it reads as the ordinary
     // thing it is.
@@ -808,7 +835,9 @@ function expansionHtml(o) {
     : '<div class="expand-empty">まだつながりはありません。</div>';
   // ＋つなぐ draws the chain and nothing else now: a remark used to go through it
   // too, which said writing something down was structural work.
-  const link = slots.length
+  // Drawing a new line out of something that has been put away would be building
+  // onto finished work; bring it back first if that is what is meant.
+  const link = slots.length && o.status !== 'archived'
     ? `<button class="link-add${picking ? ' open' : ''}" data-link-toggle="${esc(o.id)}">${picking ? 'やめる' : '＋ つなぐ'}</button>`
     : '';
 

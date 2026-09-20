@@ -261,6 +261,10 @@ button.project-title:hover { background: #eeede9; }
 .map-node rect { fill: #fff; stroke: #c5c4bc; }
 .map-node.proposed rect { stroke-dasharray: 4 3; }
 .map-node:hover rect { stroke: #8d8c84; }
+/* Still on the map only because something live hangs off it, so it is drawn as
+   a held-open door rather than as part of the work: faded, and the title with
+   it. Archive what it is holding up and it leaves with them. */
+.map-node.archived { opacity: .45; }
 .map-type { font-size: 9px; font-weight: 800; fill: #8c8a82; letter-spacing: .09em; }
 .map-title { font-size: 12px; font-weight: 650; fill: #181816; }
 .map-done { font-size: 9px; font-weight: 800; fill: #5f7d58; letter-spacing: .06em; text-anchor: end; }
