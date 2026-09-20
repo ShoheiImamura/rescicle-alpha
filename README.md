@@ -112,7 +112,19 @@ winget install --id Microsoft.VisualStudio.2022.BuildTools -e --override "--quie
 
 Build Tools は数GBあり、15〜30分かかります。`rusqlite` がSQLiteをCからビルドするため、C++ワークロードとWindows SDKの両方が要ります。
 
-> 入れた直後は、開いていたシェルを閉じて開き直してください。インストール前から起動していたシェルでは `cargo build` が `LNK1181: 入力ファイル 'kernel32.lib' を開けません` で落ちます。リンカがSDKの場所を拾えないためで、それでも直らない場合は **x64 Native Tools Command Prompt for VS 2022** から実行してください。
+> **入れ終わったらターミナルを開き直してください。** rustup は `%USERPROFILE%\.cargo\bin` をPATHに登録しますが、それより前から開いていたシェルには反映されません。`npm run dev` はこう出ます:
+>
+> ```
+> failed to run 'cargo metadata' command to get workspace directory: ... program not found
+> ```
+>
+> **エディタの統合ターミナルの場合、タブを開き直しても直りません。** 子シェルはエディタ本体の環境を引き継ぐので、エディタごと再起動してください。それをしたくなければ、そのシェルで直接PATHを足せば通ります:
+>
+> ```bash
+> export PATH="$PATH:$HOME/.cargo/bin"   # Git Bash。恒久化するなら ~/.bashrc へ
+> ```
+>
+> Build Tools のインストールがまだ走っている最中は、別の形でも止まります。`LNK1181: 入力ファイル 'kernel32.lib' を開けません` はリンカがWindows SDKを見つけられていないという意味で、インストールの完了待ちです。完了後は追加の設定なしにリンクできます（開発者用コマンドプロンプトは要りません）。
 
 画面はWebView2で描画します。Windows 11には標準で入っています。
 
