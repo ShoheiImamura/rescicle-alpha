@@ -144,7 +144,7 @@ Measurementだけは、これに加えて**実施したかどうか**を持ち�
 - `src/renderer/` — 画面。ビルド工程のない素のHTML / CSS / JavaScriptです。`bridge.js` が `window.rescicle` を組み立てるので、`app.js` は自分がどのランタイムの上にいるかを知りません。
 - `src-tauri/` — Rust側。ドメイン検証、SQLite、`claude` CLIの駆動、stdio MCPサーバー。
 
-どの画面に何があるかは [docs/screens.md](docs/screens.md) にまとめています。URLもルーターもなく、`state.workspace` の有無と `state.currentScreen` だけで決まります。
+どの画面に何があるかは [docs/screens.md](docs/screens.md)、研究者が何をしようとして中で何が起きるかは [docs/usecases.md](docs/usecases.md) にまとめています。URLもルーターもなく、`state.workspace` の有無と `state.currentScreen` だけで決まります。
 
 ## 開発
 
