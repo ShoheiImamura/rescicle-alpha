@@ -233,11 +233,17 @@ button.root-hint:hover { background: #eeede9; color: #5f5e58; }
 /* Same treatment a rejected object gets: still there, still reversible, not live. */
 .rel-row.rejected { background:#faf9f7; border-style:dashed; }
 .rel-row.rejected .rel-title { color:#8a8880; text-decoration:line-through; text-decoration-color:#c9c7c0; }
-.rel-row.candidate { border-style:dashed; border-color:#dcdbd3; background:#fbfbf9; }
+/* Not a line yet, so no frame and none of the dashed border that means a line
+   the agent drew and nobody has decided on. It takes its frame under the
+   pointer, which is the shape it is about to become. */
+.rel-row.candidate { border-color:transparent; background:none; }
 .rel-row.candidate .rel-title { color:#6b6a64; font-weight:500; }
+.rel-row.candidate .rel-plus { flex:0 0 auto; color:#b5b3ab; font-size:14px; line-height:1; }
 .rel-row.candidate:hover { border-style:solid; border-color:#8d8c84; background:#fff; }
 .rel-row.candidate:hover .rel-title { color:#1d1d1b; }
-.rel-row.candidate .rel-go { color:#a9a7a0; }
+.rel-row.candidate:hover .rel-plus { color:#5d5c56; }
+/* and nothing joins it to the row above: there is no edge there to draw. */
+.rel-row.candidate::before { display:none; }
 .link-add { margin-top:7px; border:0; background:none; padding:2px 0; font:inherit; font-size:11px; color:#a09e96; cursor:pointer; }
 .link-add:hover, .link-add.open { color:#5d5c56; }
 

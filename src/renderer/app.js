@@ -454,16 +454,19 @@ function linkSlots(o, ends) {
     .filter(slot => slot.candidates.length);
 }
 
-// A candidate is shown as the row it would become, in the place it would take,
-// and choosing it is what draws the link: there is no field to fill in and no
-// verb to press afterwards, because the pair of types has already named the
-// only predicate that could join them.
+// A candidate stands where the link would land, and choosing it is what draws
+// the link: there is no field to fill in and no verb to press afterwards,
+// because the pair of types has already named the only predicate that could
+// join them. It does not borrow the dashed border, though. Dashed already means
+// a line the agent drew and nobody has decided on yet, which is a line that
+// exists; a candidate is one that does not. It carries a ＋ and no frame until
+// the pointer is on it.
 function candidateRowHtml(slot, c, side) {
   return `<div class="rel-row candidate ${side}" data-link-add="${esc(c.id)}" data-link-predicate="${esc(slot.predicate)}" data-link-subject="${slot.asSubject ? 'self' : 'picked'}">
+      <span class="rel-plus" aria-hidden="true">＋</span>
       <span class="rel-pred">${esc(PREDICATE_LABEL[slot.predicate] || slot.predicate)}</span>
       <span class="type">${esc(TYPE_LABEL[slot.otherType] || slot.otherType)}</span>
       <span class="rel-title">${esc(c.title)}</span>
-      <span class="rel-go" aria-hidden="true">＋</span>
     </div>`;
 }
 
@@ -487,7 +490,10 @@ function expansionHtml(o) {
   // row put the agent's mistake in both of the cards it touched for good.
   // Nothing is lost by taking it out, because ＋つなぐ draws it again.
   const relActs = r => {
-    const drop = `<button class="btn danger small" data-relation-drop="${r.id}" title="このつながりを外す">はずす</button>`;
+    // Red is for 却下 on an object, which cannot be made again by hand. Taking
+    // a line out is two clicks from being back, so it reads as the ordinary
+    // thing it is.
+    const drop = `<button class="btn small" data-relation-drop="${r.id}" title="このつながりを外す">はずす</button>`;
     if (r.status === 'proposed') return `<button class="btn primary small" data-relation-status="confirmed" data-relation-id="${r.id}">確定</button>${drop}`;
     // Links rejected before they could be removed are still in the database.
     // The state is out of the vocabulary now, so give those rows both ways out.
@@ -629,7 +635,7 @@ function bind() {
   });
   document.querySelectorAll('[data-nav]').forEach(b => b.addEventListener('click', async () => {
     // Leaving the query set would show results while the nav looked switched.
-    state.currentType = b.dataset.nav; state.query = ""; state.selectedObjectId = null; state.selectedObject = null; state.error = null;
+    state.currentType = b.dataset.nav; state.query = ""; state.selectedObjectId = null; state.selectedObject = null; state.linking = null; state.error = null;
     try {
       if (state.currentType === 'files' && !state.files.length) state.files = await api.scanFiles(state.workspace.project.id);
     } catch (e) {
