@@ -391,6 +391,23 @@ fn setup_command() -> String {
     format!("claude mcp add --transport stdio --scope user rescicle -- \"{exe}\" --mcp-server")
 }
 
+// Everything rescicle has recorded, gone, leaving the app as it is on a first
+// run. The claude session ids go with it: they are keyed by project, and a
+// session belonging to a project that no longer exists would only be handed to
+// a turn that has nothing to do with it.
+#[tauri::command]
+pub fn data_reset(state: State<'_, AppState>) -> Result<Value> {
+    let removed = {
+        let db = lock(&state.db)?;
+        db.reset_all()?
+    };
+    let mut settings = lock(&state.settings)?;
+    settings.current_project_id = None;
+    settings.project_claude_sessions.clear();
+    state.save_settings(&settings)?;
+    Ok(json!({ "removed": removed }))
+}
+
 #[tauri::command]
 pub fn claude_setup_info() -> Result<Value> {
     Ok(json!({

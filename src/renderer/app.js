@@ -84,6 +84,8 @@ let state = {
   mcp: null,
   mcpBusy: false,
   mcpNotice: null,
+  // True between pressing データをリセットする and answering the confirmation.
+  resetting: false,
   renaming: false,
   renameDraft: null,
   rootNotice: null,
@@ -109,6 +111,7 @@ let composing = false;
 
 function closeModal() {
   state.modal = null;
+  state.resetting = false;
   state.error = null;
   render();
 }
@@ -255,7 +258,7 @@ function connectStepHtml() {
 function workspaceHtml() {
   const w = state.workspace;
   return `<div class="shell">
-    <header class="topbar"><div class="brand">rescicle</div>${projectTitleHtml()}<button class="root-hint" id="changeRoot" title="クリックして研究フォルダを変更">${esc(w.project.root_path)}</button><button class="btn small" id="settingsBtn">AI接続</button></header>
+    <header class="topbar"><div class="brand">rescicle</div>${projectTitleHtml()}<div class="root-hint" title="${esc(w.project.root_path)}">${esc(w.project.root_path)}</div><button class="btn small" id="settingsBtn">設定</button></header>
     <div class="layout">
       <aside class="sidebar">${sidebarHtml()}</aside>
       <main class="content"><div class="content-inner">${noticeHtml()}${contentHtml()}</div></main>
@@ -946,11 +949,43 @@ function mcpSectionHtml(agent) {
   </div>`;
 }
 
+// The path in the top bar was a button that looked like a label, and the one
+// researcher who wanted this asked for it twice without ever finding it. The bar
+// now only says where the research is; changing it lives here, where someone
+// looking for a setting looks for one.
+function folderSectionHtml() {
+  const root = state.workspace?.project?.root_path || '';
+  return `<div class="settings-section"><h3>研究フォルダ</h3>
+    <div class="connection-ok"><div class="muted">${esc(root)}</div></div>
+    <div class="actions"><button class="btn small" id="changeRoot">別のフォルダに変更</button></div>
+    <div class="muted settings-note">ファイルはその場で参照するだけなので、変更してもフォルダの中身は動きません。登録済みのデータが新しいフォルダに見つからないときは、その件数をお知らせします。</div>
+  </div>`;
+}
+
+// Two presses, because the first one is the one that gets pressed by accident.
+// What it does not touch is said in both states: the fear is about the research
+// folder, and rescicle has never had anything in it to lose.
+function resetSectionHtml() {
+  if (state.resetting) {
+    return `<div class="settings-section"><h3>すべて消す</h3>
+      <div class="error">研究・オブジェクト・つながり・会話をすべて削除します。取り消せません。</div>
+      <div class="muted settings-note">研究フォルダのファイルには触れません。消えるのは、rescicleが持っている記録だけです。</div>
+      <div class="actions"><button class="btn danger small" id="resetConfirm">消す</button><button class="btn small" id="resetCancel">やめる</button></div>
+    </div>`;
+  }
+  return `<div class="settings-section"><h3>すべて消す</h3>
+    <div class="muted settings-note">rescicleが記録したものをすべて消して、最初の画面に戻ります。研究フォルダのファイルには触れません。</div>
+    <button class="btn small settings-action" id="resetStart">データをリセットする</button>
+  </div>`;
+}
+
 function settingsModalHtml() {
   const agent = state.bootstrap?.agent || {};
-  return `<div class="modal-wrap" id="modalWrap"><div class="modal"><h2>AI接続</h2>
+  return `<div class="modal-wrap" id="modalWrap"><div class="modal"><h2>設定</h2>
+    ${folderSectionHtml()}
     ${claudeSectionHtml(agent)}
     ${mcpSectionHtml(agent)}
+    ${resetSectionHtml()}
     ${state.error ? `<div class="error">${esc(state.error)}</div>`:''}
     <div class="modal-actions"><button class="btn" id="closeModal">閉じる</button></div></div></div>`;
 }
@@ -1147,6 +1182,9 @@ function bind() {
   });
   document.getElementById('clearTarget')?.addEventListener('click', () => { state.selectedObjectId = null; state.selectedObject = null; render(); });
   document.getElementById('refreshAgent')?.addEventListener('click', refreshAgent);
+  document.getElementById('resetStart')?.addEventListener('click', () => { state.resetting = true; state.error = null; render(); });
+  document.getElementById('resetCancel')?.addEventListener('click', () => { state.resetting = false; render(); });
+  document.getElementById('resetConfirm')?.addEventListener('click', resetData);
   document.getElementById('registerMcp')?.addEventListener('click', registerMcp);
   document.getElementById('copyClaudeSetup')?.addEventListener('click', copyClaudeSetup);
   const messages = document.getElementById('messages'); if (messages) messages.scrollTop = messages.scrollHeight;
@@ -1182,6 +1220,10 @@ async function changeProjectRoot() {
       ? `登録済みデータのうち ${missing.length} 件が新しいフォルダに見つかりません: ${missing.slice(0, 3).join(', ')}${missing.length > 3 ? ' ほか' : ''}`
       : null;
   } catch (e) { state.rootNotice = `研究フォルダを変更できませんでした: ${errText(e)}`; }
+  // The notice belongs to the screen behind the settings, and it is the whole
+  // answer to what the change did, so the modal gets out of its way.
+  state.modal = null;
+  state.resetting = false;
   render();
 }
 
@@ -1286,6 +1328,26 @@ async function refreshAgent() {
   try { state.bootstrap.agent = await api.agentRefresh(); state.error = null; render(); }
   catch (e) { state.error = errText(e); render(); }
 }
+// Back to a first run without restarting: bootstrap answers from an empty
+// database, and everything the screen was holding about a project that no longer
+// exists is dropped with it.
+async function resetData() {
+  try {
+    await api.resetData();
+    state.bootstrap = await api.bootstrap();
+    state.workspace = state.bootstrap.workspace;
+    Object.assign(state, {
+      modal: null, resetting: false, onboardingStep: null,
+      onboardingFolder: null, onboardingName: null,
+      files: [], selectedObjectId: null, selectedObject: null, linking: null,
+      fileNotice: null, rejectedNotice: null, rootNotice: null,
+      currentType: 'overview', query: '', draft: '', error: null,
+    });
+    setRejectedNotice(null);
+  } catch (e) { state.error = errText(e); }
+  render();
+}
+
 async function loadMcpStatus() {
   try { state.mcp = await api.claudeMcpStatus(); }
   catch (e) { state.mcp = { checked: false, registered: false, command: null, stale: false, error: errText(e) }; }

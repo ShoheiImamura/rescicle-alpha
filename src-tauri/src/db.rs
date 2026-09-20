@@ -714,6 +714,14 @@ impl Db {
         Ok(removed)
     }
 
+    // Start again from nothing. Every other table hangs off projects and is
+    // removed with it, so one delete empties the database -- and the research
+    // folders are not touched, because rescicle never had anything in them:
+    // what goes is the record it kept about them.
+    pub fn reset_all(&self) -> Result<usize> {
+        Ok(self.conn.execute("DELETE FROM projects", [])?)
+    }
+
     pub fn workspace(&self, project_id: &str) -> Result<Value> {
         let project = self.require_project(project_id)?;
         self.purge_rejected(project_id)?;

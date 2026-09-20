@@ -575,3 +575,51 @@ fn a_rejected_object_is_kept_briefly_and_then_deleted() {
         "and nothing else does"
     );
 }
+
+// Resetting is for starting the next session from nothing: everything rescicle
+// recorded goes, and the research folder it was recording about does not.
+#[test]
+fn a_reset_empties_the_record_and_leaves_the_folder_alone() {
+    let tmp = TempDir::new("reset");
+    let research = tmp.path().join("research");
+    std::fs::create_dir_all(&research).unwrap();
+    let data = research.join("run.csv");
+    std::fs::write(&data, "a,b\n1,2\n").unwrap();
+
+    let db = Db::open(&tmp.path().join("rescicle.sqlite")).unwrap();
+    let project_id = str_of(
+        &db.create_project("reset", research.to_str().unwrap()).unwrap(),
+        "id",
+    );
+    let q = db
+        .create_object(&project_id, &object("question", "Q", "researcher", "confirmed"), "researcher")
+        .unwrap();
+    let h = db
+        .create_object(&project_id, &object("hypothesis", "H", "agent", "proposed"), "agent")
+        .unwrap();
+    db.create_relation(
+        &project_id,
+        &RelationInput {
+            subject_id: str_of(&h, "id"),
+            predicate: "addresses".into(),
+            object_id: str_of(&q, "id"),
+            origin: "agent".into(),
+            status: "proposed".into(),
+        },
+        "agent",
+    )
+    .unwrap();
+    db.register_asset(&project_id, &data, "researcher").unwrap();
+    db.set_file_shared(&project_id, "run.csv", true, "researcher").unwrap();
+
+    assert_eq!(db.reset_all().unwrap(), 1);
+    assert!(db.list_projects().unwrap().is_empty());
+    assert!(
+        db.get_object(&str_of(&q, "id")).unwrap().is_none(),
+        "objects go with the project they belonged to"
+    );
+    assert!(
+        data.exists(),
+        "the researcher's own file is not rescicle's to delete"
+    );
+}
