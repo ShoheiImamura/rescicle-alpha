@@ -58,7 +58,19 @@ button.project-title:hover { background: #eeede9; }
 .root-hint { margin-left: auto; max-width: 420px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:#88877f; font-size:11px; }
 /* grid-template-rows caps the implicit row: without it the row is auto-sized to the
    tallest column, every pane grows past the viewport and the window scrolls instead. */
-.layout { min-height: 0; display:grid; grid-template-columns: 210px minmax(420px,1fr) 390px; grid-template-rows: minmax(0, 1fr); overflow: hidden; }
+/* The three columns, with the chat width in a variable so the researcher can
+   drag it. The variable lives on :root and JS only ever writes it there, so a
+   render -- which rebuilds the whole tree -- cannot lose the width, and dragging
+   costs one custom-property write instead of a redraw of the conversation.
+   The breakpoint below still owns the sidebar, because that is not draggable and
+   the number belongs where the other layout numbers are. */
+:root { --nav: 210px; --centre: 420px; --chat: 390px; }
+.layout { min-height: 0; display:grid; grid-template-columns: var(--nav) minmax(var(--centre),1fr) 5px var(--chat); grid-template-rows: minmax(0, 1fr); overflow: hidden; }
+/* Sits in the gutter between the two, and widens its own hit area without
+   taking space: the column is 5px, the grab is comfortable. */
+.col-resize { position:relative; cursor:col-resize; background:#deddd7; }
+.col-resize::after { content:''; position:absolute; inset:0 -4px; }
+.col-resize:hover, .col-resize.dragging { background:#a9a79f; }
 .sidebar { background:#f2f2ee; border-right:1px solid #deddd7; padding:14px 10px; min-height:0; overflow-y:auto; }
 .nav-title { padding:8px 10px 6px; font-size:10px; font-weight:800; color:#939188; text-transform:uppercase; letter-spacing:.1em; }
 .nav-btn { width:100%; display:flex; align-items:center; justify-content:space-between; border:0; background:transparent; text-align:left; padding:9px 10px; border-radius:8px; color:#44433e; }
@@ -137,6 +149,15 @@ button.project-title:hover { background: #eeede9; }
 /* A verb that belongs to this collection sits on its heading, past the count. */
 .section-head .btn { margin-left:10px; }
 .empty { border:1px dashed #d6d5cf; border-radius:12px; padding:24px; color:#89877f; text-align:center; }
+/* For a screen that has one thing to do and cannot do anything else until it is
+   done. Deliberately not .empty: a dashed rounded rectangle is the shape of a
+   text field, and two of them on one screen read as a form to fill in. A solid
+   edge and a real button read as what this is -- a statement and the verb that
+   answers it. */
+.start-block { max-width:560px; padding:18px 20px; border:1px solid #e0dfd8; border-radius:12px; background:#fbfbf9; }
+.start-block-head { font-weight:700; margin-bottom:6px; }
+.start-block .muted { font-size:12px; line-height:1.75; }
+.start-block .actions { margin-top:14px; }
 
 .detail-head { margin-bottom:22px; }
 .detail-head h1 { font-size:26px; margin:5px 0 8px; line-height:1.25; letter-spacing:-.03em; }
@@ -217,7 +238,7 @@ button.project-title:hover { background: #eeede9; }
 @media (prefers-reduced-motion: reduce) { .dots i { animation:none; opacity:.55; } }
 
 @media (max-width: 1080px) {
-  .layout { grid-template-columns: 190px minmax(380px,1fr) 330px; }
+  :root { --nav: 190px; --centre: 380px; }
 }
 .settings-section { padding: 16px 0; border-top: 1px solid #e7e5df; }
 .settings-section:first-of-type { border-top: 0; }
@@ -262,6 +283,8 @@ button.project-title:hover { background: #eeede9; }
 .map-scroll { overflow-x: auto; padding-bottom: 6px; }
 .map { display: block; }
 .map-col-head { font-size: 10px; font-weight: 800; fill: #939188; letter-spacing: .09em; }
+/* A column with nothing in it yet. Faint enough to read as a space being kept. */
+.map-col-head.empty { fill: #c9c8c0; }
 .map-node { cursor: pointer; }
 .map-node rect { fill: #fff; stroke: #c5c4bc; }
 .map-node.proposed rect { stroke-dasharray: 4 3; }
@@ -275,6 +298,10 @@ button.project-title:hover { background: #eeede9; }
 .map-done { font-size: 9px; font-weight: 800; fill: #5f7d58; letter-spacing: .06em; text-anchor: end; }
 .map-edge { fill: none; stroke: #c9c8c0; stroke-width: 1.5; }
 .map-edge.proposed { stroke-dasharray: 4 3; }
+/* references / related_to: a real connection, but not the chain. Dashing is
+   already taken by 提案中, so this one is thinner and much paler instead -- it
+   has to be legible as an aside next to a solid link and next to a dashed one. */
+.map-edge.loose { stroke: #e2e1da; stroke-width: 1; }
 .map-legend { display: flex; gap: 14px; align-items: center; margin-top: 10px; font-size: 10px; color: #8c8a82; }
 /* The open node's detail follows the scroll instead of waiting at the foot of a
    map that can be twice the height of the window. It only lifts off the page
@@ -285,6 +312,12 @@ button.project-title:hover { background: #eeede9; }
    hides the map sliding under the top edge; the second is the one that lifts it,
    and it is heavy enough to be read as depth rather than as a seam. */
 .map-detail .card { max-height: 42vh; overflow-y: auto; border-color: #cfcec6; box-shadow: 0 -12px 20px rgba(246,246,243,.95), 0 14px 34px rgba(0,0,0,.17), 0 3px 8px rgba(0,0,0,.07); }
+/* Sits at the foot of the map, past the work. It is an offer, not a warning, so
+   it is a rule and some grey text rather than a box asking to be dealt with. */
+.root-prompt { margin-top: 26px; padding-top: 14px; border-top: 1px solid #e7e5df; font-size: 12px; color: #6b6a64; }
+.root-prompt .muted { margin-top: 2px; font-size: 11px; }
+.root-prompt .link-add { font-size: 12px; color: #5d5c56; text-decoration: underline; }
+.root-prompt .link-add:hover { color: #181816; }
 /* Selecting an object opens it where it sits, so the collection around it stays
    on screen; there is no detail page to go back from. */
 .card.open { border-color: #8d8c84; }

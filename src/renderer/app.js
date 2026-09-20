@@ -56,6 +56,9 @@ const CHAIN_EDGES = [
   { subject: 'prediction', predicate: 'tested_by', object: 'measurement' },
   { subject: 'measurement', predicate: 'produces', object: 'asset' }
 ];
+// Derived, so the two cannot drift: anything not in here is one of the loose
+// predicates, whatever the pair of types it happens to join.
+const CHAIN_PREDICATES = new Set(CHAIN_EDGES.map(e => e.predicate));
 const MAP = { W: 168, H: 62, COL_GAP: 28, ROW_GAP: 14, HEAD: 26, PAD: 11, LINE: 15 };
 
 // Which screen lists a type. Only assets differ from their own name: a
@@ -82,6 +85,8 @@ let state = {
   // The object whose link picker is open, if any. Nothing is half-entered while
   // it is open -- picking is the whole act -- so this is all there is to keep.
   linking: null,
+  // The measurement whose "which file did this produce" list is open, if any.
+  dataPick: null,
   // What the last register did, kept until the researcher moves on. The row it
   // happened to is easy to lose among the others.
   fileNotice: null,
@@ -141,6 +146,73 @@ const fmtElapsed = (ms) => {
 // the composition is committed.
 let composing = false;
 
+// How wide the conversation is. It is a display preference belonging to this
+// window rather than to the research, so it lives in the webview's own storage
+// and not in settings.json, which is for what the Rust side needs to know.
+// Reading it can throw in a webview with storage blocked, and a first run has
+// nothing there, so the CSS default stands in either case.
+const CHAT_WIDTH_KEY = 'rescicle.chatWidth';
+const CHAT_MIN = 300;
+
+function chatWidthBounds() {
+  // The centre column has a minimum of its own and the sidebar is fixed, so the
+  // chat cannot take more than what is left. Without this the drag could squeeze
+  // the map to nothing and there would be no way back except the other direction.
+  const nav = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--nav'), 10) || 210;
+  const centre = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--centre'), 10) || 420;
+  return { min: CHAT_MIN, max: Math.max(CHAT_MIN, window.innerWidth - nav - centre - 5) };
+}
+
+function setChatWidth(px, remember) {
+  const { min, max } = chatWidthBounds();
+  const width = Math.round(Math.min(max, Math.max(min, px)));
+  // Written on :root, so render() rebuilding the tree cannot lose it.
+  document.documentElement.style.setProperty('--chat', `${width}px`);
+  if (remember) { try { localStorage.setItem(CHAT_WIDTH_KEY, String(width)); } catch { /* not stored, still applied */ } }
+  return width;
+}
+
+function restoreChatWidth() {
+  let saved = null;
+  try { saved = localStorage.getItem(CHAT_WIDTH_KEY); } catch { /* leave the CSS default */ }
+  if (saved) setChatWidth(Number(saved), false);
+}
+
+// Bound once on the document, like the shortcuts: the handle is rebuilt by every
+// render, and a listener per render would stack. Dragging writes the custom
+// property directly and never calls render() -- redrawing the conversation and
+// the map on every pointermove would fight the drag and throw away whatever is
+// half-typed in the box.
+function bindChatResize() {
+  let dragging = null;
+  document.addEventListener('pointerdown', event => {
+    const handle = event.target.closest?.('#chatResize');
+    if (!handle) return;
+    event.preventDefault();
+    dragging = handle;
+    handle.setPointerCapture?.(event.pointerId);
+    handle.classList.add('dragging');
+  });
+  document.addEventListener('pointermove', event => {
+    if (!dragging) return;
+    setChatWidth(window.innerWidth - event.clientX, false);
+  });
+  const stop = () => {
+    if (!dragging) return;
+    dragging.classList.remove('dragging');
+    dragging = null;
+    const now = parseInt(document.documentElement.style.getPropertyValue('--chat'), 10);
+    if (now) setChatWidth(now, true);
+  };
+  document.addEventListener('pointerup', stop);
+  document.addEventListener('pointercancel', stop);
+  // A window narrow enough to violate the bounds has to pull the chat back in.
+  window.addEventListener('resize', () => {
+    const now = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--chat'), 10);
+    if (now) setChatWidth(now, false);
+  });
+}
+
 function closeModal() {
   state.modal = null;
   state.clearing = false;
@@ -190,6 +262,9 @@ async function boot() {
       render();
     }
   });
+
+  bindChatResize();
+  restoreChatWidth();
 
   // Patch the streaming reply into the bubble directly. render() would rebuild
   // the tree on every chunk, throwing away the next message being typed and
@@ -311,6 +386,7 @@ function workspaceHtml() {
     <div class="layout">
       <aside class="sidebar">${sidebarHtml()}</aside>
       <main class="content"><div class="content-inner${wideScreen() ? ' wide' : ''}">${noticeHtml()}${contentHtml()}</div></main>
+      <div class="col-resize" id="chatResize" title="ドラッグして会話の幅を変えます"></div>
       <aside class="chat">${chatHtml()}</aside>
     </div>
     ${state.modal === 'settings' ? settingsModalHtml() : ''}
@@ -435,13 +511,35 @@ function mapHtml() {
       // hypotheses the detail opened a thousand pixels below the fold, so
       // clicking a node looked like it had done nothing at all.
       //
-      // As wide as the map and no wider. The map is as wide as the chain is
-      // long -- three columns of it is 600px on a 1020px page -- so a panel
-      // sized to the page stands out past the thing it belongs to, and one
-      // sized to the reading measure falls short of a full chain. It takes the
-      // map's own width, with a floor so a one-column map does not squeeze it.
-      ? `<div class="map-detail" style="max-width:${Math.max(g.width, 520)}px">${cardHtml(state.selectedObject, { pinned: true })}</div>`
-      : ''}`;
+      // The full width of the column. It used to be sized to the map, which was
+      // sized to however many columns happened to be occupied, so the panel's
+      // width changed with the research and a card could open narrow for no
+      // reason the researcher could see. The map is the chain's full width now,
+      // and the panel is the column's.
+      ? `<div class="map-detail">${cardHtml(state.selectedObject, { pinned: true })}</div>`
+      : ''}
+    ${rootPromptHtml()}`;
+}
+
+// The folder is not asked for during onboarding, because the conversation does
+// not need it -- but then nothing ever mentions it, and the researcher has no
+// reason to know that registering their own files is even on offer. This is the
+// one place that says so: the foot of the map, which is where they are while
+// they talk, and past everything they came to the screen for.
+//
+// It sends them to データ・ファイル rather than opening the picker here. That
+// screen is the view of the folder, so choosing which folder belongs to it; a
+// picker on the map would set something the map cannot show the result of.
+//
+// It goes away for good once a folder is set. There is nothing to promote after
+// that, and changing the folder lives on the screen it scopes.
+function rootPromptHtml() {
+  if (state.workspace?.project?.root_path) return '';
+  return `<div class="root-prompt">
+    <div>手元のファイルを、この研究のデータにできます。研究フォルダを選ぶと、その中のファイルが一覧に出ます。</div>
+    <div class="muted">rescicleはフォルダを読むだけで、書き換えません。</div>
+    <button class="link-add" id="goDataFiles">データ・ファイルを開く</button>
+  </div>`;
 }
 
 // Titles are drawn as SVG <text>, which does not wrap. Break on a character count
@@ -512,7 +610,14 @@ function buildMap(objects, relations) {
     if (!anchors.has(r.to)) anchors.set(r.to, []);
     anchors.get(r.to).push(r.from);
   }
-  const cols = CHAIN.map(type => alive.filter(o => o.type === type)).filter(col => col.length);
+  // Every type keeps its own column, whether or not anything is in it. Dropping
+  // the empty ones packed the rest together, so a question and a datum with
+  // nothing between them were drawn side by side -- as though the chain ran
+  // straight from one to the other. They are four steps apart, and the gap is
+  // the most useful thing the map has to say: it is where the missing hypothesis,
+  // prediction and measurement go. The width stops moving too, so opening a node
+  // no longer reshapes the page under the cursor.
+  const cols = CHAIN.map(type => alive.filter(o => o.type === type));
   const pos = new Map();
   // Left to right, so a node's anchors already have a y when it is placed: aim
   // for the average of them, then push down far enough not to overlap the row
@@ -558,7 +663,7 @@ function buildMap(objects, relations) {
   const ys = [...pos.values()].map(q => q.y + MAP.H);
   return {
     pos, edges, cols,
-    width: Math.max(cols.length * (MAP.W + MAP.COL_GAP) - MAP.COL_GAP, MAP.W),
+    width: cols.length * (MAP.W + MAP.COL_GAP) - MAP.COL_GAP,
     height: (ys.length ? Math.max(...ys) : MAP.HEAD) + 6,
     count: alive.length
   };
@@ -573,11 +678,23 @@ function mapFigureHtml(g) {
     const a = g.pos.get(r.from), b = g.pos.get(r.to);
     const x1 = a.x + MAP.W, y1 = a.y + MAP.H / 2, x2 = b.x, y2 = b.y + MAP.H / 2;
     const mid = (x1 + x2) / 2;
-    return `<path class="map-edge ${r.status === 'proposed' ? 'proposed' : ''}" d="M${x1} ${y1} C${mid} ${y1} ${mid} ${y2} ${x2} ${y2}"></path>`;
+    // references and related_to are allowed between any two types, so they can
+    // land in the same place a chain link would and used to be drawn the same.
+    // A measurement joined to a hypothesis by references then looked exactly
+    // like a measurement testing it -- the chain read as complete across a
+    // prediction that was never made. It is a real connection and it stays on
+    // the map, but faint, so it cannot be mistaken for the spine.
+    const loose = !CHAIN_PREDICATES.has(r.predicate);
+    return `<path class="map-edge ${loose ? 'loose' : ''} ${r.status === 'proposed' ? 'proposed' : ''}" d="M${x1} ${y1} C${mid} ${y1} ${mid} ${y2} ${x2} ${y2}"></path>`;
   }).join('');
+  const anyLoose = g.edges.some(r => !CHAIN_PREDICATES.has(r.predicate));
+  // All five heads, including over a column with nothing under it: that is what
+  // says where the empty space belongs to, and so what is missing between the
+  // two things that are there. An empty one is drawn faint, so it reads as a
+  // place kept rather than as a heading whose contents went astray.
   const heads = g.cols.map((col, c) => {
-    const label = TYPE_LABEL[col[0].type] || col[0].type;
-    return `<text class="map-col-head" x="${c * (MAP.W + MAP.COL_GAP)}" y="12">${esc(label)}</text>`;
+    const label = TYPE_LABEL[CHAIN[c]] || CHAIN[c];
+    return `<text class="map-col-head ${col.length ? '' : 'empty'}" x="${c * (MAP.W + MAP.COL_GAP)}" y="12">${esc(label)}</text>`;
   }).join('');
   const nodes = [...g.pos.values()].map(({ x, y, o }) => `<g class="map-node ${esc(o.status)} ${state.selectedObjectId === o.id ? 'selected' : ''}" data-object-id="${o.id}">
       <rect x="${x}" y="${y}" width="${MAP.W}" height="${MAP.H}" rx="10"></rect>
@@ -586,7 +703,7 @@ function mapFigureHtml(g) {
       ${wrapTitle(o.title).map((line, i) => `<text class="map-title" x="${x + MAP.PAD}" y="${y + 36 + i * MAP.LINE}">${esc(line)}</text>`).join('')}
     </g>`).join('');
   return `<div class="map-scroll"><svg class="map" width="${g.width}" height="${g.height}" viewBox="0 0 ${g.width} ${g.height}">${edges}${heads}${nodes}</svg></div>
-    <div class="map-legend"><span>実線 = 確定</span><span>破線 = 提案中（AI提案）</span><span>ノードをクリックすると詳細が開きます</span></div>`;
+    <div class="map-legend"><span>実線 = 確定</span><span>破線 = 提案中（AI提案）</span>${anyLoose ? '<span>薄い線 = 参考（鎖のつながりではありません）</span>' : ''}<span>ノードをクリックすると詳細が開きます</span></div>`;
 }
 
 // Searches across every type at once, including rejected objects -- and since
@@ -848,7 +965,49 @@ function expansionHtml(o) {
     <div class="expand-head">つながり</div>${graph}${link}
     ${o.type==='asset' && o.asset ? `<div class="expand-head">ローカルファイル</div><div class="card-body">${esc(o.asset.relative_path)}
 ${fmtSize(o.asset.size_bytes)} · ${esc(o.asset.modified_at)}</div>` : ''}
+    ${dataPickHtml(o)}
     ${archiveHtml(o)}
+  </div>`;
+}
+
+// A measurement that has been run and has nothing hanging off it is the one
+// gap the app can see for itself, and the moment the researcher is actually
+// thinking about their data. Registering used to live only on the データ・ファイル
+// screen, which you have to remember to visit -- and since the folder stopped
+// being asked for on the first screen, nothing brought it up at all.
+//
+// So the trigger is on the measurement: the thing that produced the data is
+// where "here is what came out" belongs, and it is the reverse of the order the
+// files screen takes. Linking this way also fills in the date for free, because
+// the measurement is marked run from the file's own modified time.
+function needsData(o) {
+  return o.type === 'measurement'
+    && o.performed
+    && !(o.outgoing || []).some(r => r.predicate === 'produces' && r.status !== 'rejected');
+}
+
+function dataPickHtml(o) {
+  if (!needsData(o)) return '';
+  const root = state.workspace?.project?.root_path || '';
+  if (state.dataPick !== o.id) {
+    return `<button class="link-add" data-data-pick="${esc(o.id)}">この測定が生み出したデータを登録する</button>`;
+  }
+  if (!root) {
+    return `<div class="file-link">
+      <div class="file-link-head">研究フォルダがまだ選ばれていません</div>
+      <div class="muted settings-note">選ぶと、その中のファイルからデータを登録できます。rescicleはファイルを読むだけです。</div>
+      <div class="actions"><button class="btn small" id="changeRoot">研究フォルダを選ぶ</button><button class="link-skip" data-data-pick="${esc(o.id)}">やめる</button></div>
+    </div>`;
+  }
+  const spare = state.files.filter(f => !f.asset_id);
+  return `<div class="file-link">
+    <div class="file-link-head">どのファイルですか</div>
+    ${spare.length
+      ? spare.slice(0, 40).map(f => `<button class="link-pick" data-data-file="${esc(f.relative_path)}" data-measurement="${esc(o.id)}">
+          <span class="rel-plus" aria-hidden="true">＋</span><span class="type">${esc(fmtSize(f.size_bytes))}</span><span class="rel-title">${esc(f.relative_path)}</span>
+        </button>`).join('')
+      : '<div class="expand-empty">このフォルダに、まだ登録していないファイルがありません。</div>'}
+    <button class="link-skip" data-data-pick="${esc(o.id)}">やめる</button>
   </div>`;
 }
 
@@ -960,6 +1119,27 @@ function fileNoticeHtml() {
 // them are the data, so a single flat list would lose the research to the noise
 // of everything sitting next to it.
 function dataFilesHtml() {
+  // Before a folder is chosen there is nothing on this screen except the
+  // choosing, so that is all it shows. It used to draw both columns anyway and
+  // fill each with its empty state, which put two dashed rounded rectangles side
+  // by side -- the shape of a text field, twice, and neither of them one. The
+  // legend above them explained 「データとして登録」 and what the AI reads, both
+  // of which describe controls and events that cannot happen yet.
+  //
+  // What is left is the sentence that is true now and the one verb that acts on
+  // it. The rest of the screen exists as soon as there is a folder to show.
+  const chosen = state.workspace?.project?.root_path || '';
+  if (!chosen) {
+    return `<div class="page-title"><h1>データ・ファイル</h1></div>
+      <div class="muted page-note">研究フォルダを選ぶと、その中のファイルがここに並びます。そのうち研究のデータにするものを登録すると、測定とつなげられます。</div>
+      <div class="start-block">
+        <div class="start-block-head">まだ研究フォルダが選ばれていません</div>
+        <div class="muted">見るのは選んだフォルダの中だけです。<strong>rescicleはファイルを読むだけで</strong>、書き換え・移動・コピー・削除はしません。</div>
+        <div class="actions"><button class="btn" id="changeRootHere">研究フォルダを選ぶ</button></div>
+      </div>
+      ${state.error ? `<div class="error">${esc(state.error)}</div>` : ''}`;
+  }
+
   const assets = new Map(
     (state.workspace.objects || [])
       .filter(o => o.type === 'asset' && isLive(o))
@@ -1011,29 +1191,24 @@ function dataFilesHtml() {
   // folder is pointed at; only this list is a view of a folder. At the top of
   // the page it claimed the whole screen was that folder's, which is the
   // reading it invites and not a true one.
-  const root = state.workspace?.project?.root_path || "";
   // A caption on the collection, not a row in it. Boxed it was the same shape as
   // a file row -- rounded rect, text at the left, button at the right -- so it
   // read as a file named C:\Users\... sitting at the top of the list.
   const folderBar = `<div class="folder-line">
-    ${root
-      ? `<span class="folder-line-path" title="${esc(root)}">${esc(root)}</span>`
-      : '<span class="folder-line-path">研究フォルダはまだ選ばれていません</span>'}
-    <button class="link-add" id="changeRootHere">${root ? "別のフォルダに変更" : "研究フォルダを選ぶ"}</button>
+    <span class="folder-line-path" title="${esc(chosen)}">${esc(chosen)}</span>
+    <button class="link-add" id="changeRootHere">別のフォルダに変更</button>
   </div>`;
-  const folderBody = !root
-    ? '<div class="empty">研究フォルダを選ぶと、その中のファイルがここに並びます。</div>'
-    : plain.length
-      ? `<div class="files">${plain.map(fileRowHtml).join("")}</div>`
-      // Nothing to do is not worth a box the size of a list. One line says it.
-      : state.files.length
-        ? '<div class="muted settings-note">このフォルダのファイルはすべて登録済みです。</div>'
-        : '<div class="empty">「再スキャン」でフォルダを確認します。</div>';
+  const folderBody = plain.length
+    ? `<div class="files">${plain.map(fileRowHtml).join("")}</div>`
+    // Nothing to do is not worth a box the size of a list. One line says it.
+    : state.files.length
+      ? '<div class="muted settings-note">このフォルダのファイルはすべて登録済みです。</div>'
+      : '<div class="empty">「再スキャン」でフォルダを確認します。</div>';
   const folderColumn = group(
     "フォルダ内のファイル",
     plain.length,
     folderBar + folderBody,
-    root ? '<button class="btn small" id="scanFiles">再スキャン</button>' : '',
+    '<button class="btn small" id="scanFiles">再スキャン</button>',
   );
 
   // Two columns are for when both sides have something to show. With one of them
@@ -1206,9 +1381,13 @@ function bind() {
   document.getElementById('dismissConnect')?.addEventListener('click', () => {
     state.connectOffer = false; state.mcpNotice = null; render();
   });
+  // The same move as the nav entry, so it lands in the same state -- and the
+  // nav follows, which is what tells the researcher where they have been sent.
+  document.getElementById('goDataFiles')?.addEventListener('click', () =>
+    document.querySelector('[data-nav="data-files"]')?.click());
   document.querySelectorAll('[data-nav]').forEach(b => b.addEventListener('click', async () => {
     // Leaving the query set would show results while the nav looked switched.
-    state.currentScreen = b.dataset.nav; state.query = ""; state.selectedObjectId = null; state.selectedObject = null; state.linking = null; state.fileNotice = null; state.error = null;
+    state.currentScreen = b.dataset.nav; state.query = ""; state.selectedObjectId = null; state.selectedObject = null; state.linking = null; state.dataPick = null; state.fileNotice = null; state.error = null;
     try {
       if (state.currentScreen === 'data-files' && !state.files.length) state.files = await api.scanFiles(state.workspace.project.id);
     } catch (e) {
@@ -1278,6 +1457,23 @@ function bind() {
       render();
     }
   }));
+  document.querySelectorAll('[data-data-pick]').forEach(b => b.addEventListener('click', async (event) => {
+    event.stopPropagation();
+    const id = b.dataset.dataPick;
+    state.dataPick = state.dataPick === id ? null : id;
+    state.error = null;
+    // The folder has not necessarily been looked in yet: this screen is not the
+    // one that scans it, and the researcher may never have opened that one.
+    if (state.dataPick && state.workspace?.project?.root_path && !state.files.length) {
+      try { state.files = await api.scanFiles(state.workspace.project.id); }
+      catch (e) { state.error = errText(e); }
+    }
+    render();
+  }));
+  document.querySelectorAll('[data-data-file]').forEach(b => b.addEventListener('click', event => {
+    event.stopPropagation();
+    registerFileForMeasurement(b.dataset.dataFile, b.dataset.measurement);
+  }));
   document.querySelectorAll('[data-link-toggle]').forEach(b => b.addEventListener('click', event => {
     event.stopPropagation();
     const id = b.dataset.linkToggle;
@@ -1328,7 +1524,7 @@ function bind() {
     state.fileNotice = null; render();
   });
   document.querySelectorAll('[data-open-asset]').forEach(b => b.addEventListener('click', () => {
-    state.currentScreen = 'data-files'; state.query = ''; state.linking = null; state.fileNotice = null; state.error = null;
+    state.currentScreen = 'data-files'; state.query = ''; state.linking = null; state.dataPick = null; state.fileNotice = null; state.error = null;
     loadSelected(b.dataset.openAsset);
   }));
   document.getElementById('sendBtn')?.addEventListener('click', sendMessage);
@@ -1430,6 +1626,22 @@ async function loadSelected(id) {
 // chain's single edge into an asset, so there is no predicate to choose here
 // either. A refusal from the Rust side has to reach the page: the file list is
 // redrawn from the scan, not from what the button assumed happened.
+// Registering and linking in one press, from the measurement's side. The two
+// writes are the same ones the files screen makes in the other order, and the
+// second is what stamps the measurement's date from the file.
+async function registerFileForMeasurement(relativePath, measurementId) {
+  state.error = null;
+  try {
+    const projectId = state.workspace.project.id;
+    const asset = await api.registerAsset(projectId, relativePath);
+    state.workspace = await api.createRelation(projectId, measurementId, 'produces', asset.id);
+    state.files = await api.scanFiles(projectId);
+    state.dataPick = null;
+    if (state.selectedObjectId) await loadSelected(state.selectedObjectId);
+  } catch (e) { state.error = errText(e); }
+  render();
+}
+
 async function registerFile(relativePath) {
   state.error = null;
   state.fileNotice = null;
