@@ -50,7 +50,6 @@ pub fn run() {
             commands::messages_list,
             commands::files_scan,
             commands::asset_register,
-            commands::file_set_shared,
             commands::agent_status,
             commands::agent_refresh,
             commands::agent_send,

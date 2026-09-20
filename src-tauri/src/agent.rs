@@ -58,16 +58,39 @@ fn excerpt(path: &Path) -> Option<(String, bool)> {
     Some((String::from_utf8_lossy(&bytes).into_owned(), truncated))
 }
 
+/// A file rescicle has read because the agent asked for it, on its way back in.
+pub struct ReadFile {
+    pub path: String,
+    pub text: String,
+    pub truncated: bool,
+}
+
+// Reads whatever the agent named, and only from inside the research folder.
+// resolve_project_file refuses anything that climbs out of it, so a path the
+// agent invented cannot reach the rest of the machine, and excerpt() returns
+// nothing for a file that is not text.
+pub fn read_requested(root: &Path, paths: &[String], limit: usize) -> Vec<ReadFile> {
+    paths
+        .iter()
+        .take(limit)
+        .filter_map(|relative| {
+            let absolute = resolve_project_file(root, relative).ok()?;
+            let (text, truncated) = excerpt(&absolute)?;
+            Some(ReadFile { path: relative.clone(), text, truncated })
+        })
+        .collect()
+}
+
 // Shared by every agent backend so each one sees the same research context and
-// the same file boundary. The index is names and metadata; the only contents
-// that travel are excerpts of files the researcher has explicitly shared.
+// the same file boundary. The index is names and metadata. Contents arrive only
+// where the agent has asked for them and rescicle has read them.
 pub fn build_prompt(
     db: &Db,
     project_id: &str,
     text: &str,
     selected_object_id: Option<&str>,
     file_index: &[FileEntry],
-    root: &Path,
+    read: &[ReadFile],
 ) -> Result<String> {
     let context = db.context(project_id, selected_object_id)?;
     let safe_files: Vec<Value> = file_index
@@ -82,28 +105,22 @@ pub fn build_prompt(
         })
         .collect();
 
-    let shared: Vec<Value> = db
-        .shared_files(project_id)?
-        .into_iter()
-        .filter_map(|relative| {
-            let absolute = resolve_project_file(root, &relative).ok()?;
-            let (body, truncated) = excerpt(&absolute)?;
-            Some(json!({ "path": relative, "truncated": truncated, "text": body }))
-        })
-        .collect();
-
     let mut parts = vec![
         "PROJECT CONTEXT (rescicle local record, summarized):".to_string(),
         context.to_string(),
-        "FILE INDEX (names and metadata; contents are not included here):".to_string(),
+        "FILE INDEX (names and metadata. To read one, name it in read_files):".to_string(),
         json!(safe_files).to_string(),
     ];
-    if !shared.is_empty() {
+    if !read.is_empty() {
+        let bodies: Vec<Value> = read
+            .iter()
+            .map(|f| json!({ "path": f.path, "truncated": f.truncated, "text": f.text }))
+            .collect();
         parts.push(
-            "SHARED FILE EXCERPTS (only files the researcher chose to share, cut at the first few kilobytes):"
+            "FILES YOU ASKED FOR (cut at the first few kilobytes). Answer from these; do not ask for them again:"
                 .to_string(),
         );
-        parts.push(json!(shared).to_string());
+        parts.push(json!(bodies).to_string());
     }
     parts.push("CURRENT USER MESSAGE:".to_string());
     parts.push(text.to_string());
@@ -144,6 +161,14 @@ pub struct Structured {
     pub reply: String,
     #[serde(default)]
     pub operations: Vec<Operation>,
+    // Files from the index whose contents the agent has decided it needs. Nothing
+    // is sent ahead of being asked for: the researcher used to tick files one at
+    // a time before the agent could know which ones mattered, which is a chore
+    // asked before the information needed to do it exists. rescicle reads what is
+    // named here, inside the research folder and nowhere else, and runs the turn
+    // on for the agent to answer with.
+    #[serde(default)]
+    pub read_files: Option<Vec<String>>,
 }
 
 fn actor_for(origin: Option<&String>) -> &'static str {

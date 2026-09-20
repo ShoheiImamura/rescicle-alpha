@@ -25,13 +25,24 @@ fn lock<T>(mutex: &Mutex<T>) -> Result<MutexGuard<'_, T>> {
         .map_err(|_| Error("rescicleの内部状態が壊れています。再起動してください。".into()))
 }
 
-fn project_root(project: &Value) -> PathBuf {
-    PathBuf::from(
-        project
-            .get("root_path")
-            .and_then(Value::as_str)
-            .unwrap_or_default(),
-    )
+// A project can be made before a research folder is chosen: the conversation is
+// what the app is for and it needs no folder, so being asked for one was a toll
+// on the way in. Empty means not chosen yet, and it must never be treated as a
+// path -- resolve() joins a relative path onto the working directory, so an empty
+// root would quietly become wherever rescicle happens to have been launched from.
+fn project_root_opt(project: &Value) -> Option<PathBuf> {
+    let root = project.get("root_path").and_then(Value::as_str)?;
+    (!root.trim().is_empty()).then(|| PathBuf::from(root))
+}
+
+/// How many files one round may read, and how many rounds a turn may take. Each
+/// round is another call to the CLI, so the researcher is waiting through them.
+const READ_PER_ROUND: usize = 4;
+const READ_ROUNDS: usize = 2;
+
+fn require_root(project: &Value) -> Result<PathBuf> {
+    project_root_opt(project)
+        .ok_or_else(|| Error("先に研究フォルダを選んでください（設定 → 研究フォルダ）".into()))
 }
 
 impl AppState {
@@ -112,13 +123,14 @@ pub async fn project_choose_folder(app: AppHandle) -> Result<Option<String>> {
 
 #[tauri::command]
 pub fn project_create(state: State<'_, AppState>, name: Option<String>, root_path: Option<String>) -> Result<Value> {
-    let Some(root_path) = root_path.filter(|p| !p.trim().is_empty()) else {
-        return err("研究フォルダを選択してください");
-    };
+    // No folder is allowed now. What the research is about is asked for first,
+    // and where its files are is asked for when there is something to do with
+    // them; requiring it here made the app introduce itself as a file tool.
+    let root_path = root_path.map(|p| p.trim().to_string()).unwrap_or_default();
     let fallback = Path::new(&root_path)
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_else(|| root_path.clone());
+        .unwrap_or_else(|| "研究".into());
     let name = name.filter(|n| !n.trim().is_empty()).unwrap_or(fallback);
 
     let project = lock(&state.db)?.create_project(&name, &root_path)?;
@@ -249,8 +261,17 @@ pub fn files_scan(state: State<'_, AppState>, project_id: String) -> Result<Valu
     let project = db
         .get_project(&project_id)?
         .ok_or_else(|| Error("project not found".into()))?;
-    let shared: std::collections::HashSet<String> =
-        db.shared_files(&project_id)?.into_iter().collect();
+    // Which files the agent has read, so the list can say so. It is a record of
+    // what happened, not a setting: nothing here decides what it may read next.
+    let read: std::collections::HashSet<String> = db
+        .files_read(&project_id)?
+        .into_iter()
+        .filter_map(|row| {
+            let detail = row.get("detail_json")?.as_str()?;
+            let parsed: Value = serde_json::from_str(detail).ok()?;
+            Some(parsed.get("path")?.as_str()?.to_string())
+        })
+        .collect();
     let registered: std::collections::HashMap<String, String> = db
         .asset_paths(&project_id)?
         .into_iter()
@@ -261,14 +282,19 @@ pub fn files_scan(state: State<'_, AppState>, project_id: String) -> Result<Valu
             )
         })
         .collect();
-    let listed: Vec<Value> = scan_files(&project_root(&project), 300)
+    // No folder yet is not an error here: the screen says so and offers to pick
+    // one. Scanning nothing is the honest answer.
+    let Some(root) = project_root_opt(&project) else {
+        return Ok(json!([]));
+    };
+    let listed: Vec<Value> = scan_files(&root, 300)
         .into_iter()
         .map(|file| {
-            let is_shared = shared.contains(&file.relative_path);
+            let was_read = read.contains(&file.relative_path);
             let asset_id = registered.get(&file.relative_path).cloned();
             let mut value = serde_json::to_value(file).unwrap_or(Value::Null);
             if let Some(map) = value.as_object_mut() {
-                map.insert("shared".into(), json!(is_shared));
+                map.insert("read".into(), json!(was_read));
                 map.insert("asset_id".into(), json!(asset_id));
             }
             value
@@ -277,32 +303,13 @@ pub fn files_scan(state: State<'_, AppState>, project_id: String) -> Result<Valu
     Ok(json!(listed))
 }
 
-// Sharing is one file at a time and always something the researcher does; the
-// agent has no way to ask for it.
-#[tauri::command]
-pub fn file_set_shared(
-    state: State<'_, AppState>,
-    project_id: String,
-    relative_path: String,
-    shared: bool,
-) -> Result<Value> {
-    let db = lock(&state.db)?;
-    let project = db
-        .get_project(&project_id)?
-        .ok_or_else(|| Error("project not found".into()))?;
-    // Refuse a path that leaves the research folder before recording it.
-    resolve_project_file(&project_root(&project), &relative_path)?;
-    db.set_file_shared(&project_id, &relative_path, shared, "researcher")?;
-    Ok(json!({ "path": relative_path, "shared": shared }))
-}
-
 #[tauri::command]
 pub fn asset_register(state: State<'_, AppState>, project_id: String, relative_path: String) -> Result<Value> {
     let db = lock(&state.db)?;
     let project = db
         .get_project(&project_id)?
         .ok_or_else(|| Error("project not found".into()))?;
-    let absolute = resolve_project_file(&project_root(&project), &relative_path)?;
+    let absolute = resolve_project_file(&require_root(&project)?, &relative_path)?;
     db.register_asset(&project_id, &absolute, "researcher")
 }
 
@@ -322,24 +329,27 @@ pub async fn agent_send(
     // The database lock is taken in two short bursts around the Claude turn rather
     // than held for it: a turn runs for seconds to minutes, and nothing else in the
     // app could touch storage while it did.
-    let (prompt, root, mut session) = {
+    let (prompt, root, mut session, files) = {
         let db = lock(&state.db)?;
         let project = db
             .get_project(&project_id)?
             .ok_or_else(|| Error("project not found".into()))?;
-        let root = project_root(&project);
+        // Without a folder there is nothing to index and nothing to share, and a
+        // turn runs perfectly well on the conversation alone -- which is the whole
+        // reason the folder could be left until later.
+        let root = project_root_opt(&project).unwrap_or_default();
         db.save_message(&project_id, "user", &text)?;
-        let files = scan_files(&root, 120);
+        let files = if root.as_os_str().is_empty() { Vec::new() } else { scan_files(&root, 120) };
         let prompt = build_prompt(
             &db,
             &project_id,
             &text,
             selected_object_id.as_deref(),
             &files,
-            &root,
+            &[],
         )?;
         let session = lock(&state.settings)?.session(&project_id);
-        (prompt, root, session)
+        (prompt, root, session, files)
     };
 
     // The reply is read out of the JSON document as it is written and pushed to
@@ -356,12 +366,54 @@ pub async fn agent_send(
         }
     };
 
-    let structured = state
+    let mut structured = state
         .agent
         .structured_turn(&mut session, &prompt, Some(&on_text))
         .await?;
 
+    // The agent decides what it needs to read, and rescicle does the reading --
+    // inside the research folder and nowhere else. Answering then takes another
+    // turn, so this is bounded twice over: a few files each round, a couple of
+    // rounds, and the researcher waits for one reply either way.
+    let mut was_read: Vec<String> = Vec::new();
+    for _ in 0..READ_ROUNDS {
+        let wanted = structured.read_files.clone().unwrap_or_default();
+        // Asking again for something already handed over would loop forever.
+        let wanted: Vec<String> = wanted
+            .into_iter()
+            .filter(|p| !was_read.contains(p))
+            .collect();
+        if wanted.is_empty() || root.as_os_str().is_empty() {
+            break;
+        }
+        let read = crate::agent::read_requested(&root, &wanted, READ_PER_ROUND);
+        if read.is_empty() {
+            break;
+        }
+        was_read.extend(read.iter().map(|f| f.path.clone()));
+        let prompt = {
+            let db = lock(&state.db)?;
+            build_prompt(
+                &db,
+                &project_id,
+                &text,
+                selected_object_id.as_deref(),
+                &files,
+                &read,
+            )?
+        };
+        structured = state
+            .agent
+            .structured_turn(&mut session, &prompt, Some(&on_text))
+            .await?;
+    }
+
     let db = lock(&state.db)?;
+    // What left the folder is worth being able to look up afterwards. It is the
+    // whole of what replaced asking permission for each file up front.
+    for path in &was_read {
+        db.record_file_read(&project_id, path, "agent")?;
+    }
     let applied = apply_operations(&db, &root, &project_id, &structured.operations);
     db.save_message(&project_id, "assistant", &structured.reply)?;
     let workspace = db.workspace(&project_id)?;

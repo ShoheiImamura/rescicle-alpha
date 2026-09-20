@@ -456,62 +456,71 @@ fn a_measurement_is_run_or_not_regardless_of_its_status() {
     );
 }
 
-// Nothing under the research folder is opened without the researcher having
-// said so, and what travels is an excerpt, not the file.
+// Nothing under the research folder is opened until the agent says it needs a
+// particular file, and what travels back is an excerpt, not the file. The path
+// is resolved against the root, so a name that climbs out of the folder reaches
+// nothing at all.
 #[test]
-fn only_shared_files_reach_the_prompt() {
-    use rescicle_lib::agent::build_prompt;
+fn only_the_files_the_agent_asks_for_reach_the_prompt() {
+    use rescicle_lib::agent::{build_prompt, read_requested};
     use rescicle_lib::files::scan_files;
 
-    let tmp = TempDir::new("share");
+    let tmp = TempDir::new("read");
     let research = tmp.path().join("research");
     std::fs::create_dir_all(&research).unwrap();
-    std::fs::write(research.join("open.csv"), "temperature,resistance\n20,10.2\n").unwrap();
-    std::fs::write(research.join("private.csv"), "subject,dose\nA,12\n").unwrap();
+    std::fs::write(research.join("open.csv"), "temperature,resistance
+20,10.2
+").unwrap();
+    std::fs::write(research.join("private.csv"), "subject,dose
+A,12
+").unwrap();
     // Longer than the excerpt, so the cut can be seen.
-    std::fs::write(research.join("big.csv"), "x,y\n".repeat(4000)).unwrap();
+    std::fs::write(research.join("big.csv"), "x,y
+".repeat(4000)).unwrap();
     std::fs::write(research.join("photo.png"), [0x89, b'P', b'N', b'G', 0, 1, 2, 3]).unwrap();
+    std::fs::write(tmp.path().join("outside.txt"), "not yours").unwrap();
 
     let db = Db::open(&tmp.path().join("rescicle.sqlite")).unwrap();
     let project_id = str_of(
-        &db.create_project("share", research.to_str().unwrap()).unwrap(),
+        &db.create_project("read", research.to_str().unwrap()).unwrap(),
         "id",
     );
     let files = scan_files(&research, 120);
-    let prompt = |db: &Db| {
-        build_prompt(db, &project_id, "どう思う", None, &files, &research).unwrap()
+    let prompt = |read: &[rescicle_lib::agent::ReadFile]| {
+        build_prompt(&db, &project_id, "どう思う", None, &files, read).unwrap()
     };
 
-    // Nothing shared: every name is listed, no contents anywhere.
-    let before = prompt(&db);
+    // A turn that asked for nothing carries every name and no contents.
+    let before = prompt(&[]);
     assert!(before.contains("private.csv"), "the index should still list it");
-    assert!(!before.contains("subject,dose"), "a file nobody shared was read");
+    assert!(!before.contains("subject,dose"), "a file nobody asked for was read");
     assert!(!before.contains("temperature,resistance"));
-    assert!(!before.contains("SHARED FILE EXCERPTS"));
 
-    db.set_file_shared(&project_id, "open.csv", true, "researcher").unwrap();
-    let after = prompt(&db);
-    assert!(after.contains("SHARED FILE EXCERPTS"));
-    assert!(after.contains("temperature,resistance"), "the shared file was not sent");
-    assert!(!after.contains("subject,dose"), "an unshared file came along with it");
+    let asked = read_requested(&research, &["open.csv".to_string()], 4);
+    let after = prompt(&asked);
+    assert!(after.contains("temperature,resistance"), "the file it asked for did not arrive");
+    assert!(!after.contains("subject,dose"), "a file it did not ask for came along");
 
     // A long file is cut, and says so.
-    db.set_file_shared(&project_id, "big.csv", true, "researcher").unwrap();
-    let cut = prompt(&db);
+    let cut = prompt(&read_requested(&research, &["big.csv".to_string()], 4));
     assert!(cut.contains(r#""truncated":true"#), "a long file was sent whole");
     assert!(cut.len() < 30_000, "the excerpt did not bound the prompt: {}", cut.len());
 
-    // Sharing a binary shares nothing: a few kilobytes of PNG helps no one.
-    db.set_file_shared(&project_id, "photo.png", true, "researcher").unwrap();
-    let with_binary = prompt(&db);
+    // A binary yields nothing: a few kilobytes of PNG helps no one.
     assert!(
-        !with_binary.contains(r#"{"path":"photo.png""#),
+        read_requested(&research, &["photo.png".to_string()], 4).is_empty(),
         "a binary file was excerpted into the prompt"
     );
 
-    // Taking it back takes the contents back out.
-    db.set_file_shared(&project_id, "open.csv", false, "researcher").unwrap();
-    assert!(!prompt(&db).contains("temperature,resistance"));
+    // And the folder is the whole of what it can reach.
+    assert!(
+        read_requested(&research, &["../outside.txt".to_string()], 4).is_empty(),
+        "a path climbing out of the research folder was read"
+    );
+
+    // How many it may have in one round is capped.
+    let many: Vec<String> = ["open.csv", "private.csv", "big.csv"].iter().map(|s| s.to_string()).collect();
+    assert_eq!(read_requested(&research, &many, 2).len(), 2);
 }
 
 // Rejecting is throwing away, so the object leaves the database rather than
@@ -610,7 +619,6 @@ fn a_reset_empties_the_record_and_leaves_the_folder_alone() {
     )
     .unwrap();
     db.register_asset(&project_id, &data, "researcher").unwrap();
-    db.set_file_shared(&project_id, "run.csv", true, "researcher").unwrap();
 
     assert_eq!(db.reset_all().unwrap(), 1);
     assert!(db.list_projects().unwrap().is_empty());
@@ -622,4 +630,40 @@ fn a_reset_empties_the_record_and_leaves_the_folder_alone() {
         data.exists(),
         "the researcher's own file is not rescicle's to delete"
     );
+}
+
+// The research folder is asked for when there is a file to do something with,
+// not on the way in, so a project starts without one. Empty has to stay empty:
+// resolve() turns a relative path into one under the working directory, so a
+// root of "" would be written down as wherever rescicle was launched from and
+// the file list would show the app's own directory.
+#[test]
+fn a_project_can_start_before_a_research_folder_is_chosen() {
+    let tmp = TempDir::new("no-folder");
+    let db = Db::open(&tmp.path().join("rescicle.sqlite")).unwrap();
+
+    let project = db.create_project("T2を律速しているもの", "").unwrap();
+    assert_eq!(str_of(&project, "root_path"), "");
+
+    let project_id = str_of(&project, "id");
+    db.create_object(
+        &project_id,
+        &object("question", "何がT2を決めているか", "researcher", "confirmed"),
+        "researcher",
+    )
+    .unwrap();
+    let workspace = db.workspace(&project_id).unwrap();
+    assert_eq!(
+        workspace["counts"]["question"], 1,
+        "the conversation does not go through the folder"
+    );
+
+    // And it can be chosen later.
+    let research = tmp.path().join("research");
+    std::fs::create_dir_all(&research).unwrap();
+    let (updated, missing) = db
+        .set_project_root(&project_id, research.to_str().unwrap(), "researcher")
+        .unwrap();
+    assert!(!str_of(&updated, "root_path").is_empty());
+    assert!(missing.is_empty());
 }

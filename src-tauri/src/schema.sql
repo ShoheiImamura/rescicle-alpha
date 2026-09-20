@@ -93,13 +93,7 @@ CREATE TABLE IF NOT EXISTS events (
   FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
 );
 
--- Which files the researcher has chosen to let the agent read. Nothing is read
--- without a row here; the file index it always sees carries names and metadata
--- only.
-CREATE TABLE IF NOT EXISTS shared_files (
-  project_id TEXT NOT NULL,
-  relative_path TEXT NOT NULL,
-  shared_at TEXT NOT NULL,
-  PRIMARY KEY (project_id, relative_path),
-  FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
-);
+-- Reading is the agent's to decide and rescicle's to do, so there is no table
+-- of permissions any more. Every read is written to events as file_read, which
+-- is what the file list shows and the only record of what left the folder.
+-- An older database still has a shared_files table; nothing reads it.

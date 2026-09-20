@@ -76,9 +76,12 @@ let state = {
   // live in state or it is lost every time anything else redraws.
   draft: '',
   modal: null,
-  // Set to 'connect' between creating the first project and entering it, and
-  // only while this machine still has something to register.
-  onboardingStep: null,
+  // What is being typed on the first screen: the research, which becomes the
+  // first message and the name.
+  onboardingText: '',
+  // Whether to raise the Claude Code offer beside the work. Decided once, when
+  // the project is made, so it cannot appear later over a machine that is set up.
+  connectOffer: false,
   // What Claude Code has registered under `rescicle`, read back when the AI
   // connection screen opens. Null until that answer arrives.
   mcp: null,
@@ -190,9 +193,7 @@ function render() {
   const focusedId = focused?.id;
   const caret = focused?.selectionStart ?? null;
 
-  root.innerHTML = state.onboardingStep === 'connect'
-    ? connectStepHtml()
-    : state.workspace ? workspaceHtml() : onboardingHtml();
+  root.innerHTML = state.workspace ? workspaceHtml() : onboardingHtml();
   bind();
 
   const content = document.querySelector('.content');
@@ -209,23 +210,43 @@ function render() {
   if (state.selectedObjectId && !state.selectedObject) loadSelected(state.selectedObjectId);
 }
 
+// Somewhere to start from, for the researcher who knows their research far too
+// well to answer "tell me about it". Each one is a corner of it, small enough to
+// begin in the middle of.
+const STARTERS = [
+  '最近うまくいっていない実験について話したい',
+  '次にやる測定を決めたい',
+  '頭の中にある仮説を書き出したい',
+];
+
+// The first screen asks what the research is about, not where its files are.
+// Asking for a folder first made rescicle introduce itself as a file tool --
+// which is how the first user read it, and the first thing they asked for was
+// bulk file registration. The folder is a thing the conversation never needs;
+// it is asked for when there is a file to do something with.
+//
+// What is typed here is the first message as well as the name, so the app has
+// answered once before it has finished being set up.
 function onboardingHtml() {
-  const folder = state.onboardingFolder || '';
+  const text = state.onboardingText || '';
   return `<div class="onboarding"><div class="onboarding-card">
     <div class="brand">rescicle</div>
-    <h1>研究フォルダから始める</h1>
-    <div class="muted">研究について話すと、問い・仮説・予測・測定が少しずつ「もの」として見えるようになります。ファイルは移動せず、今ある研究フォルダをそのまま参照します。</div>
-    <div class="field"><input id="projectName" class="input" placeholder="研究名（あとで変更できます）" value="${esc(state.onboardingName || '')}"></div>
-    <div class="folder-row"><div class="folder-path">${folder ? esc(folder) : '研究データがあるフォルダを選択'}</div><button class="btn" id="chooseFolder">選択</button></div>
+    <h1>いま、何を調べていますか</h1>
+    <div class="muted">そのまま書いてください。話すうちに、問い・仮説・予測・測定が「もの」として現れます。出てきたものは一つずつ確かめられます。</div>
+    <div class="field"><textarea id="researchText" class="input onboarding-text" placeholder="例: 浅いNV中心のT2を律速しているものが分からない。表面の吸着分子が怪しいと思っている。">${esc(text)}</textarea></div>
+    <div class="starters"><div class="muted starters-head">書き出しに迷ったら</div>
+      ${STARTERS.map(s => `<button class="starter" data-starter="${esc(s)}">${esc(s)}</button>`).join('')}
+    </div>
     ${state.error ? `<div class="error">${esc(state.error)}</div>` : ''}
-    <div class="actions"><button class="btn primary" id="createProject" ${folder ? '' : 'disabled'}>このフォルダで始める</button></div>
+    <div class="actions"><button class="btn primary" id="startResearch"${text.trim() && !state.pending ? '' : ' disabled'}>${state.pending ? '考えています…' : 'はじめる'}</button></div>
   </div></div>`;
 }
 
 // Registering with Claude Code is about the machine, not the project, so it is
-// worth asking once -- and only while there is still something to register.
-// mcpNeedsSetup() is what decides whether this screen appears at all, so a
-// researcher who has already done it never sees it again.
+// worth offering once -- and only while there is still something to register.
+// It is an offer in the notice slot rather than a screen of its own: it is
+// optional, the conversation does not go through it, and a step between the
+// question and the answer is a step in front of the thing they came for.
 function mcpNeedsSetup() {
   const available = !!state.bootstrap?.agent?.claude?.available;
   // Before the answer is back, and when the CLI is missing, there is nothing
@@ -236,29 +257,25 @@ function mcpNeedsSetup() {
 
 // The conversation is the primary path and it does not come through here, so
 // this step can always be walked past.
-function connectStepHtml() {
-  const claude = state.bootstrap?.agent?.claude || {};
-  const done = state.mcp?.registered && !state.mcp?.stale;
-  const primary = done
-    ? '<button class="btn primary" id="finishConnect">はじめる</button>'
-    : `<button class="btn primary" id="registerMcp"${state.mcpBusy || !claude.available ? ' disabled' : ''}>${state.mcpBusy ? '登録しています…' : 'Claude Codeに登録'}</button>
-       <button class="btn" id="finishConnect">あとで設定する</button>`;
-  return `<div class="onboarding"><div class="onboarding-card">
-    <div class="brand">rescicle</div>
-    <h1>Claude Codeとつなぐ</h1>
-    <div class="muted">登録すると、Claude Code側からもrescicleを読み書きできます。rescicleの画面で話すだけなら、この登録は要りません。</div>
-    ${mcpStateHtml()}
-    ${state.mcpNotice ? `<div class="muted settings-note">${esc(state.mcpNotice)}</div>` : ''}
-    ${state.error ? `<div class="error">${esc(state.error)}</div>` : ''}
-    <div class="actions">${primary}</div>
-    <div class="muted settings-note">あとから「AI接続」でいつでも変更できます。</div>
-  </div></div>`;
+// Offered once, beside the work rather than in front of it, and only to a
+// machine that still needs it. It is raised while the first turn is already
+// running, so answering it costs nothing that was being waited for.
+function connectNoticeHtml() {
+  if (!state.connectOffer) return '';
+  if (state.mcp?.registered && !state.mcp?.stale) {
+    return `<div class="notice"><span>Claude Codeに登録しました。すでに開いているClaude Codeには、開き直すまで反映されません。</span>
+      <button class="btn small" id="dismissConnect">閉じる</button></div>`;
+  }
+  if (!mcpNeedsSetup()) return '';
+  return `<div class="notice"><span>Claude Code側からもrescicleを読み書きできます。登録はこの端末で一度だけ、会話するだけなら要りません。</span>
+    <button class="btn small" id="registerMcp"${state.mcpBusy ? ' disabled' : ''}>${state.mcpBusy ? '登録しています…' : '登録する'}</button>
+    <button class="btn small" id="dismissConnect">あとで</button></div>`;
 }
 
 function workspaceHtml() {
   const w = state.workspace;
   return `<div class="shell">
-    <header class="topbar"><div class="brand">rescicle</div>${projectTitleHtml()}<div class="root-hint" title="${esc(w.project.root_path)}">${esc(w.project.root_path)}</div><button class="btn small" id="settingsBtn">設定</button></header>
+    <header class="topbar"><div class="brand">rescicle</div>${projectTitleHtml()}${w.project.root_path ? `<div class="root-hint" title="${esc(w.project.root_path)}">${esc(w.project.root_path)}</div>` : '<div class="root-hint"></div>'}<button class="btn small" id="settingsBtn">設定</button></header>
     <div class="layout">
       <aside class="sidebar">${sidebarHtml()}</aside>
       <main class="content"><div class="content-inner">${noticeHtml()}${contentHtml()}</div></main>
@@ -301,7 +318,7 @@ function noticeHtml() {
   const root = state.rootNotice
     ? `<div class="notice"><span>${esc(state.rootNotice)}</span><button class="btn small" id="dismissNotice">閉じる</button></div>`
     : '';
-  return root + rejectedNoticeHtml();
+  return root + connectNoticeHtml() + rejectedNoticeHtml();
 }
 
 // Rejecting deletes, so the one thing owed back is the few minutes in which a
@@ -773,23 +790,21 @@ function fmtDay(iso) {
 function fileLineHtml(f) {
   const cut = Math.max(f.relative_path.lastIndexOf('/'), f.relative_path.lastIndexOf('\\'));
   const folder = cut > 0 ? f.relative_path.slice(0, cut) : '';
-  return `${folder ? `${esc(folder)} · ` : ''}${fmtSize(f.size_bytes)}`;
+  return `${folder ? `${esc(folder)} · ` : ''}${fmtSize(f.size_bytes)}${f.read ? ' · 読み込み済み' : ''}`;
 }
 
-// Sharing is a property of the file and has nothing to do with the chain, so it
-// reads the same wherever the file is shown: on its own row, and in the actions
-// of the card it became.
-function shareButtonHtml(f) {
-  return f.shared
-    ? `<button class="btn small primary" data-share-path="${esc(f.relative_path)}" data-share="false" title="共有をやめる">共有中</button>`
-    : `<button class="btn small" data-share-path="${esc(f.relative_path)}" data-share="true" title="先頭4KBまでをAIに渡します">中身を見せる</button>`;
+// Whether the agent has read this file. It is a record of something that
+// happened, not a switch: there is nothing here to turn on or off, which is why
+// it is text and not a button.
+function readMarkHtml(f) {
+  return f.read ? '<div class="file-meta read-mark" title="AIがこのファイルを読みました">読み込み済み</div>' : '<div class="file-meta"></div>';
 }
 
 function fileRowHtml(f) {
-  return `<div class="file-entry"><div class="file ${f.shared ? 'shared' : ''}">
+  return `<div class="file-entry"><div class="file">
     <div class="file-name" title="${esc(f.relative_path)}">${esc(f.relative_path)}</div>
     <div class="file-meta">${fmtSize(f.size_bytes)}</div>
-    ${shareButtonHtml(f)}
+    ${readMarkHtml(f)}
     <button class="btn small" data-register-path="${esc(f.relative_path)}" title="研究のデータとして記録します">データとして登録</button>
   </div></div>`;
 }
@@ -801,7 +816,10 @@ function fileRowHtml(f) {
 function fileNoticeHtml() {
   const notice = state.fileNotice;
   if (!notice) return '';
-  const done = `<div class="file-notice"><span>${esc(notice.path)} — ${notice.measurement
+  // The app's one notice look, not a second one: white with a thin border and a
+  // button at the right end is exactly what a file row and a card look like, so
+  // the notice read as another row in the list it was sitting on top of.
+  const done = `<div class="notice"><span>${esc(notice.path)} — ${notice.measurement
     ? `「${esc(notice.measurement)}」が生み出したデータとして登録しました。`
     : 'データとして登録しました。'}</span>
     <button class="btn small" data-open-asset="${esc(notice.assetId)}">開く</button></div>`;
@@ -843,7 +861,7 @@ function filesHtml() {
   // then moved, renamed or deleted outside rescicle. Saying so beats dropping it
   // off the screen, which is how it would go unnoticed.
   const orphaned = [...assets.values()];
-  const shared = state.files.filter(f => f.shared).length;
+  const readCount = state.files.filter(f => f.read).length;
 
   const group = (title, count, body) =>
     `<section class="section"><div class="section-head"><h2>${title}</h2><span class="muted">${count}件</span></div>${body}</section>`;
@@ -854,10 +872,13 @@ function filesHtml() {
   // nobody scrolled to. In a column each, the data stays in view while the
   // folder is read. .file-columns collapses back to one column when the window
   // is too narrow to give each of them a readable width.
-  const dataColumn = `${registered.length
+  // The notice goes in the column, not above both of them. It is about a file
+  // that has just become data, so it belongs over the データ it joined -- and it
+  // then takes that column's width, instead of being cut off at the reading
+  // width while the columns beside it ran wider and nothing lined up.
+  const dataColumn = `${fileNoticeHtml()}${registered.length
       ? group('データ', registered.length,
           `<div class="object-grid">${registered.map(([f, asset]) => cardHtml(asset, {
-            extraActions: shareButtonHtml(f),
             fileLine: fileLineHtml(f),
           })).join('')}</div>`)
       : '<div class="empty">まだデータはありません。フォルダのファイルから登録できます。</div>'}
@@ -867,12 +888,17 @@ function filesHtml() {
            <div class="object-grid">${orphaned.map(o => cardHtml(o, { fileLine: 'ファイルが見つかりません' })).join('')}</div>`)
       : ''}`;
 
+  const hasRoot = !!state.workspace?.project?.root_path;
   const folderColumn = plain.length
     ? group('フォルダ内のファイル', plain.length, `<div class="files">${plain.map(fileRowHtml).join('')}</div>`)
-    // Nothing to do is not worth a box the size of a list. One line says it.
-    : state.files.length
-      ? '<div class="muted settings-note">フォルダのファイルはすべて登録済みです。</div>'
-      : '<div class="empty">「再スキャン」で研究フォルダを確認します。</div>';
+    // No folder yet is the only one of these with something to do about it.
+    : !hasRoot
+      ? `<div class="empty">研究フォルダを選ぶと、その中のファイルがここに並びます。
+           <div class="actions" style="justify-content:center;margin-top:12px"><button class="btn small" id="pickRootHere">研究フォルダを選ぶ</button></div></div>`
+      // Nothing to do is not worth a box the size of a list. One line says it.
+      : state.files.length
+        ? '<div class="muted settings-note">フォルダのファイルはすべて登録済みです。</div>'
+        : '<div class="empty">「再スキャン」で研究フォルダを確認します。</div>';
 
   // Two columns are for when both sides have something to show. With one of them
   // empty the split just halves the width and puts an empty box in the other
@@ -882,10 +908,9 @@ function filesHtml() {
   return `<div class="page-title"><h1>データ・ファイル</h1><button class="btn small" id="scanFiles">再スキャン</button></div>
     <div class="muted page-note">研究フォルダにあるファイルの一覧です。rescicleはその場で参照するだけで、移動もコピーもしません。データとして登録したものが上に並びます。</div>
     <div class="muted file-legend">
-      <div><strong>中身を見せる</strong> — そのファイルの本文を、先頭4KBまで抜粋してAIに渡します。いつでも取り消せます。${shared ? `いま${shared}件を共有中です。` : '本文が送られるのは、ここで共有したファイルだけです。'}</div>
-      <div><strong>データとして登録</strong> — そのファイルを研究のデータとして記録し、測定とつなげられるようにします。本文は送られません。</div>
+      <div><strong>データとして登録</strong> — そのファイルを研究のデータとして記録し、測定とつなげられるようにします。</div>
+      <div>ファイルの中身は、AIが必要だと判断したときに読みます。研究フォルダの外は読めません。読んだファイルには「読み込み済み」が付きます。${readCount ? `いままでに${readCount}件を読みました。` : ''}</div>
     </div>
-    ${fileNoticeHtml()}
     ${state.error ? `<div class="error">${esc(state.error)}</div>` : ''}
     <div class="${columns}"><div>${dataColumn}</div><div>${folderColumn}</div></div>`;
 }
@@ -903,7 +928,7 @@ function chatHtml() {
   }
   return `<div class="chat-head">会話<span class="pill backend-pill" id="backendPill">Claude Code</span><div class="chat-context">${selected ? `<span class="target-label">対象: ${esc(selected)}</span><button class="clear-target" id="clearTarget" title="研究全体に戻す">×</button>` : '<span class="target-label">研究全体</span>'}</div></div>
     <div class="messages" id="messages">${thread.length ? thread.join('') : '<div class="muted chat-hint">「何を調べている研究か」から普通に話してください。</div>'}</div>
-    <div class="chat-compose"><textarea id="chatInput" class="input" placeholder="研究について話す…（Ctrl+K）">${esc(state.draft)}</textarea>${state.error ? `<div class="error">${esc(state.error)}</div>`:''}<div class="compose-actions"><div class="privacy">本文を送るのは共有したファイルだけです</div><button class="btn primary" id="sendBtn"${state.pending ? ' disabled' : ''}>${state.pending ? '応答待ち…' : '送信'}</button></div></div>`;
+    <div class="chat-compose"><textarea id="chatInput" class="input" placeholder="研究について話す…（Ctrl+K）">${esc(state.draft)}</textarea>${state.error ? `<div class="error">${esc(state.error)}</div>`:''}<div class="compose-actions"><div class="privacy">ファイルはAIが必要なときだけ読みます</div><button class="btn primary" id="sendBtn"${state.pending ? ' disabled' : ''}>${state.pending ? '応答待ち…' : '送信'}</button></div></div>`;
 }
 
 function claudeSectionHtml(agent) {
@@ -914,7 +939,7 @@ function claudeSectionHtml(agent) {
        <div class="muted settings-note">claudeコマンドをインストールして、rescicleを再起動してください。</div>`;
   return `<div class="settings-section"><h3>Claude Code</h3>${body}
     <div class="actions"><button class="btn small" id="refreshAgent">状態を更新</button></div>
-    <div class="muted settings-note">画面のチャットは、すでにログイン済みのClaude Codeをローカルで実行して応答します。APIキーは不要です。研究フォルダをAIの作業ディレクトリにはせず、会話・研究オブジェクトの要約・ファイル名/サイズ/更新日時を渡します。ファイル本文が渡るのは、ファイル画面であなたが「中身を見せる」を押したものだけで、先頭4KBまでの抜粋です。</div>
+    <div class="muted settings-note">画面のチャットは、すでにログイン済みのClaude Codeをローカルで実行して応答します。APIキーは不要です。研究フォルダをAIの作業ディレクトリにはせず、会話・研究オブジェクトの要約・ファイル名/サイズ/更新日時を渡します。ファイルの中身は、AIが必要だと判断したものだけを、研究フォルダの内側から先頭4KBまで読みます。読んだファイルはファイル画面に記録されます。</div>
   </div>`;
 }
 
@@ -956,9 +981,12 @@ function mcpSectionHtml(agent) {
 function folderSectionHtml() {
   const root = state.workspace?.project?.root_path || '';
   return `<div class="settings-section"><h3>研究フォルダ</h3>
-    <div class="connection-ok"><div class="muted">${esc(root)}</div></div>
-    <div class="actions"><button class="btn small" id="changeRoot">別のフォルダに変更</button></div>
-    <div class="muted settings-note">ファイルはその場で参照するだけなので、変更してもフォルダの中身は動きません。登録済みのデータが新しいフォルダに見つからないときは、その件数をお知らせします。</div>
+    ${root
+      ? `<div class="connection-ok"><div class="muted">${esc(root)}</div></div>
+         <div class="actions"><button class="btn small" id="changeRoot">別のフォルダに変更</button></div>
+         <div class="muted settings-note">ファイルはその場で参照するだけなので、変更してもフォルダの中身は動きません。登録済みのデータが新しいフォルダに見つからないときは、その件数をお知らせします。</div>`
+      : `<div class="muted settings-note">選ぶと、その中のファイルをデータとして登録できるようになります。ファイルは移動もコピーもされません。</div>
+         <div class="actions"><button class="btn small" id="changeRoot">研究フォルダを選ぶ</button></div>`}
   </div>`;
 }
 
@@ -990,33 +1018,20 @@ function settingsModalHtml() {
     <div class="modal-actions"><button class="btn" id="closeModal">閉じる</button></div></div></div>`;
 }
 function bind() {
-  // render() rebuilds the card, so a name that lives only in the field is lost
-  // every time anything else redraws it -- and something else does now, when the
-  // registration check answers.
-  document.getElementById('projectName')?.addEventListener('input', e => { state.onboardingName = e.target.value; });
-  document.getElementById('chooseFolder')?.addEventListener('click', async () => {
-    const folder = await api.chooseFolder();
-    if (folder) {
-      state.onboardingFolder = folder;
-      // The folder's own name is a suggestion, not a correction: it stands in
-      // only while the researcher has not named the research themselves.
-      if (!state.onboardingName) {
-        state.onboardingName = folder.split(/[\\/]/).filter(Boolean).at(-1) || 'Research';
-      }
-      render();
-    }
-  });
-  document.getElementById('createProject')?.addEventListener('click', async () => {
-    const name = document.getElementById('projectName').value.trim() || state.onboardingName || 'Research';
-    state.workspace = await api.createProject({ name, rootPath: state.onboardingFolder });
-    state.error = null;
-    // The answer to this was asked for while the folder was being chosen, so it
-    // is already here and the step costs no wait.
-    if (mcpNeedsSetup()) state.onboardingStep = 'connect';
+  // render() rebuilds the card, so what is being typed has to live in state or
+  // it is lost the moment anything else redraws -- and something does, when the
+  // registration check answers a second or two in.
+  document.getElementById('researchText')?.addEventListener('input', e => { state.onboardingText = e.target.value; });
+  document.querySelectorAll('[data-starter]').forEach(b => b.addEventListener('click', () => {
+    // A starting point, not a submission: it goes into the box to be edited.
+    state.onboardingText = b.dataset.starter;
     render();
-  });
-  document.getElementById('finishConnect')?.addEventListener('click', () => {
-    state.onboardingStep = null; state.mcpNotice = null; state.error = null; render();
+    const box = document.getElementById('researchText');
+    if (box) { box.focus(); box.setSelectionRange(box.value.length, box.value.length); }
+  }));
+  document.getElementById('startResearch')?.addEventListener('click', startResearch);
+  document.getElementById('dismissConnect')?.addEventListener('click', () => {
+    state.connectOffer = false; state.mcpNotice = null; render();
   });
   document.querySelectorAll('[data-nav]').forEach(b => b.addEventListener('click', async () => {
     // Leaving the query set would show results while the nav looked switched.
@@ -1130,17 +1145,6 @@ function bind() {
   document.getElementById('changeRoot')?.addEventListener('click', changeProjectRoot);
   document.getElementById('dismissNotice')?.addEventListener('click', () => { state.rootNotice = null; render(); });
   document.getElementById('scanFiles')?.addEventListener('click', async () => { state.files = await api.scanFiles(state.workspace.project.id); render(); });
-  document.querySelectorAll('[data-share-path]').forEach(b => b.addEventListener('click', async () => {
-    state.error = null;
-    try {
-      await api.setFileShared(state.workspace.project.id, b.dataset.sharePath, b.dataset.share === 'true');
-      state.files = await api.scanFiles(state.workspace.project.id);
-    } catch (e) {
-      // Without this a refusal from the Rust side looked like a dead button.
-      state.error = errText(e);
-    }
-    render();
-  }));
   document.querySelectorAll('[data-register-path]').forEach(b => b.addEventListener('click', () =>
     registerFile(b.dataset.registerPath)));
   document.querySelectorAll('[data-link-asset]').forEach(b => b.addEventListener('click', () =>
@@ -1182,6 +1186,7 @@ function bind() {
   });
   document.getElementById('clearTarget')?.addEventListener('click', () => { state.selectedObjectId = null; state.selectedObject = null; render(); });
   document.getElementById('refreshAgent')?.addEventListener('click', refreshAgent);
+  document.getElementById('pickRootHere')?.addEventListener('click', changeProjectRoot);
   document.getElementById('resetStart')?.addEventListener('click', () => { state.resetting = true; state.error = null; render(); });
   document.getElementById('resetCancel')?.addEventListener('click', () => { state.resetting = false; render(); });
   document.getElementById('resetConfirm')?.addEventListener('click', resetData);
@@ -1224,6 +1229,11 @@ async function changeProjectRoot() {
   // answer to what the change did, so the modal gets out of its way.
   state.modal = null;
   state.resetting = false;
+  // Standing on the list the new folder fills, an empty scan would read as an
+  // empty folder rather than as one nobody has looked in yet.
+  if (state.currentType === 'files' && state.workspace) {
+    try { state.files = await api.scanFiles(state.workspace.project.id); } catch { /* the notice already says why */ }
+  }
   render();
 }
 
@@ -1299,6 +1309,36 @@ function startThinkingTimer() {
   }, 1000);
 }
 
+// The name is the first line of what they wrote, because that is what they would
+// have typed into a name field anyway, and one field is better than two.
+function nameFromText(text) {
+  const line = text.trim().split('\n')[0].trim();
+  if (!line) return '研究';
+  return line.length > 30 ? `${line.slice(0, 29)}…` : line;
+}
+
+// Setting up and the first turn are one press. What they wrote is the project's
+// name and its first message, so the screen they land on already has the turn
+// running in it rather than an empty map and an invitation to start.
+async function startResearch() {
+  const text = (document.getElementById('researchText')?.value ?? state.onboardingText).trim();
+  if (!text || state.pending) return;
+  try {
+    state.workspace = await api.createProject({ name: nameFromText(text), rootPath: null });
+    state.error = null;
+    // Decided here, while the answer from boot is in hand, so it cannot surface
+    // later over a machine that has since been set up.
+    state.connectOffer = mcpNeedsSetup();
+    state.onboardingText = '';
+    state.draft = text;
+    render();
+    await sendMessage();
+  } catch (e) {
+    state.error = errText(e);
+    render();
+  }
+}
+
 async function sendMessage() {
   const input = document.getElementById('chatInput');
   const text = (input?.value ?? state.draft).trim();
@@ -1337,8 +1377,7 @@ async function resetData() {
     state.bootstrap = await api.bootstrap();
     state.workspace = state.bootstrap.workspace;
     Object.assign(state, {
-      modal: null, resetting: false, onboardingStep: null,
-      onboardingFolder: null, onboardingName: null,
+      modal: null, resetting: false, onboardingText: '', connectOffer: false,
       files: [], selectedObjectId: null, selectedObject: null, linking: null,
       fileNotice: null, rejectedNotice: null, rootNotice: null,
       currentType: 'overview', query: '', draft: '', error: null,

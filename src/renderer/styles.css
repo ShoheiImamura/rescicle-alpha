@@ -159,7 +159,10 @@ button.project-title:hover { background: #eeede9; }
 .files { display:grid; gap:7px; }
 .file { display:grid; grid-template-columns: minmax(0,1fr) auto auto; gap:10px; align-items:center; padding:9px 10px; background:#fff; border:1px solid #e1e0da; border-radius:9px; }
 .file-name { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; }
-.file-meta { font-size:10px; color:#918f87; }
+.file-meta { font-size:10px; color:#918f87; white-space:nowrap; }
+/* Something that happened, said plainly. It is not a control and must not read
+   as one: nothing here can be turned off. */
+.read-mark { color:#6b6a64; }
 
 .modal-wrap { position:fixed; inset:0; background:rgba(0,0,0,.28); display:grid; place-items:center; z-index:10; }
 .modal { width:min(520px, calc(100vw - 32px)); max-height:calc(100vh - 48px); overflow-y:auto; background:#fff; border-radius:16px; border:1px solid #d7d6d0; padding:22px; box-shadow:0 30px 90px rgba(0,0,0,.18); }
@@ -204,6 +207,15 @@ button.project-title:hover { background: #eeede9; }
    attribute is dropped and its rule silently never applies. Spacing that would
    naturally be written inline has to live here instead. */
 .onboarding-card .field { margin-top: 22px; }
+/* Tall enough that a few sentences do not feel like more than was asked for,
+   and it grows no further: this is the start of a conversation, not a form. */
+.onboarding-text { min-height: 104px; resize: vertical; line-height: 1.6; }
+.starters { margin-top: 16px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.starters-head { width: 100%; font-size: 11px; }
+/* Reads as something to pick up rather than a button to press: pressing one
+   fills the box, it does not send anything. */
+.starter { border: 1px dashed #d4d3cd; background: transparent; color: #65645f; font-size: 12px; padding: 6px 11px; border-radius: 999px; }
+.starter:hover { border-style: solid; background: #fafaf8; color: #272622; }
 .onboarding-card .actions { justify-content: flex-end; margin-top: 22px; }
 .actions.object-actions { margin-top: 18px; }
 .page-note { margin-bottom: 16px; }
@@ -281,9 +293,8 @@ button.project-title:hover { background: #eeede9; }
 .link-add { margin-top:7px; border:0; background:none; padding:2px 0; font:inherit; font-size:11px; color:#a09e96; cursor:pointer; }
 .link-add:hover, .link-add.open { color:#5d5c56; }
 
-/* Four controls now: name, size, share, register. */
+/* Four columns: name, size, whether it has been read, register. */
 .file { grid-template-columns: minmax(0,1fr) auto auto auto; }
-.file.shared { border-color:#bfbeb5; background:#fbfbf8; }
 /* A registered file gets no tint of its own. Its button already says データを見る
    instead of データとして登録, which is the state in words, and a second hue here
    would be one that means neither 実施済み nor an error. */
@@ -294,12 +305,6 @@ button.project-title:hover { background: #eeede9; }
 .file-legend div { font-size:11px; }
 
 
-/* What just happened to a file, said where the eye already is. The row changes
-   too, but a row that changed while it was being read is not an answer. */
-.file-notice { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:12px; padding:9px 12px; border:1px solid #cfcec7; border-radius:9px; background:#fff; font-size:12px; color:#44433e; }
-/* Without this the text sizes to its content and the button drops to its own
-   line while half the box sits empty beside it. */
-.file-notice span { flex:1; min-width:0; }
 
 /* The file row and, under it, the measurement it came out of. Same picking as
    a chain link in a card: no frame until the pointer is on it, and no verb to

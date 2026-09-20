@@ -31,8 +31,6 @@ window.rescicle = {
   deleteRelation: relationId => call('relation_delete', { relationId }),
   scanFiles: projectId => call('files_scan', { projectId }),
   registerAsset: (projectId, relativePath) => call('asset_register', { projectId, relativePath }),
-  setFileShared: (projectId, relativePath, shared) =>
-    call('file_set_shared', { projectId, relativePath, shared }),
   messages: projectId => call('messages_list', { projectId }),
   sendMessage: payload =>
     call('agent_send', {

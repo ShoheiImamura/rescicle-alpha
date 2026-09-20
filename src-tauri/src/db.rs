@@ -99,7 +99,14 @@ impl Db {
 
     pub fn create_project(&self, name: &str, root_path: &str) -> Result<Value> {
         let id = new_id("proj");
-        let root = resolve(Path::new(root_path)).to_string_lossy().into_owned();
+        // Empty means no research folder has been chosen yet, and it has to stay
+        // empty: resolve() turns a relative path into one under the working
+        // directory, so "" would be written down as wherever rescicle was started.
+        let root = if root_path.trim().is_empty() {
+            String::new()
+        } else {
+            resolve(Path::new(root_path)).to_string_lossy().into_owned()
+        };
         let stamp = now();
         self.conn.execute(
             "INSERT INTO projects(id,name,root_path,created_at,last_opened_at) VALUES(?,?,?,?,?)",
@@ -617,49 +624,28 @@ impl Db {
             .ok_or_else(|| Error("object not found".into()))
     }
 
-    // Sharing is per file and always the researcher's own act. Without a row
-    // here nothing under the research folder is opened, let alone sent, so the
-    // promise the app makes is enforced by there being no other path to the
-    // bytes rather than by remembering not to take one.
-    pub fn set_file_shared(
-        &self,
-        project_id: &str,
-        relative_path: &str,
-        shared: bool,
-        actor: &str,
-    ) -> Result<()> {
-        self.require_project(project_id)?;
-        if shared {
-            self.conn.execute(
-                "INSERT OR IGNORE INTO shared_files(project_id,relative_path,shared_at) VALUES(?,?,?)",
-                params![project_id, relative_path, now()],
-            )?;
-        } else {
-            self.conn.execute(
-                "DELETE FROM shared_files WHERE project_id=? AND relative_path=?",
-                params![project_id, relative_path],
-            )?;
-        }
+    // Which files the agent read, and when. Nothing is gated on it -- the agent
+    // decides what it needs and rescicle reads it -- so the record is what is
+    // owed instead: the researcher can see what left the folder rather than
+    // having been asked to approve each file before anyone knew which mattered.
+    pub fn record_file_read(&self, project_id: &str, relative_path: &str, actor: &str) -> Result<()> {
         self.event(
             project_id,
-            if shared { "file_shared" } else { "file_unshared" },
+            "file_read",
             actor,
             None,
             None,
             Some(json!({ "path": relative_path })),
-        )?;
-        Ok(())
+        )
     }
 
-    pub fn shared_files(&self, project_id: &str) -> Result<Vec<String>> {
-        Ok(query_all(
+    pub fn files_read(&self, project_id: &str) -> Result<Vec<Value>> {
+        query_all(
             &self.conn,
-            "SELECT relative_path FROM shared_files WHERE project_id=? ORDER BY relative_path",
+            "SELECT detail_json, created_at FROM events
+             WHERE project_id=? AND action='file_read' ORDER BY created_at DESC LIMIT 200",
             &[&project_id],
-        )?
-        .into_iter()
-        .map(|row| text(&row, "relative_path"))
-        .collect())
+        )
     }
 
     pub fn save_message(&self, project_id: &str, role: &str, content: &str) -> Result<Value> {

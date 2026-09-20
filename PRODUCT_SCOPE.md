@@ -16,7 +16,7 @@ Claude Code users can connect their existing Claude Code environment to rescicle
 
 ## Deliberate constraints
 
-- No raw-data auto upload. Contents reach the agent only for files the researcher shares one at a time, as an excerpt, and only while the sharing stands.
+- No raw-data auto upload. The agent is given names and metadata; contents reach it only for files it has named as needed, read by rescicle from inside the research folder, as an excerpt, and written down as a `file_read` event. Asking the researcher to approve each file up front was asked before anyone could know which files mattered, so what is owed is the record of what was read rather than a toll before reading.
 - The agent never receives the research folder as its working directory.
 - AI cannot write SQLite directly; only validated domain operations are applied.
 - Agent-generated scientific content starts as `proposed`.
