@@ -21,3 +21,87 @@ fn discovers_and_runs_the_cli() {
     assert!(status["version"].as_str().unwrap_or("").contains("Claude"));
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+// One real conversation turn, end to end: the prompt the app would build, the
+// system prompt and schema it embeds, a live CLI turn, and the operations coming
+// back applied to a real database. This is what agent_send does either side of
+// its await, so it covers the primary path without the Tauri command layer.
+#[test]
+#[ignore = "spends a real Claude Code turn"]
+fn a_real_turn_produces_research_objects() {
+    use rescicle_lib::agent::{apply_operations, build_prompt};
+    use rescicle_lib::db::Db;
+    use rescicle_lib::files::scan_files;
+
+    let tmp = std::env::temp_dir().join(format!("rescicle-turn-{}", uuid::Uuid::new_v4()));
+    let research = tmp.join("research");
+    std::fs::create_dir_all(&research).unwrap();
+    std::fs::write(
+        research.join("20K.csv"),
+        "temperature,resistance\n20,10.2\n25,3.1\n",
+    )
+    .unwrap();
+
+    let db = Db::open(&tmp.join("rescicle.sqlite")).unwrap();
+    let project = db
+        .create_project("低温測定", research.to_str().unwrap())
+        .unwrap();
+    let project_id = project["id"].as_str().unwrap().to_string();
+
+    let files = scan_files(&research, 120);
+    let prompt = build_prompt(
+        &db,
+        &project_id,
+        "20Kと25Kで試料の抵抗を測ったら、25Kで急に下がった。何か相転移が起きている気がする。",
+        None,
+        &files,
+    )
+    .unwrap();
+    println!("--- prompt: {} bytes ---", prompt.len());
+
+    let agent = ClaudeAgent::new(&tmp.join("agent-workspace")).unwrap();
+    let mut session: Option<String> = None;
+    let structured = tokio::runtime::Runtime::new()
+        .unwrap()
+        .block_on(agent.structured_turn(&mut session, &prompt))
+        .expect("the turn should come back as the schema says");
+
+    println!("--- reply ---\n{}", structured.reply);
+    println!("--- operations: {} ---", structured.operations.len());
+    for op in &structured.operations {
+        println!("  {} {:?} {:?}", op.op, op.object_type, op.title);
+    }
+
+    assert!(!structured.reply.trim().is_empty(), "the reply must not be empty");
+    assert!(session.is_some(), "the session id must come back for the next turn");
+
+    let applied = apply_operations(&db, &research, &project_id, &structured.operations);
+    println!("--- applied ---");
+    for record in &applied {
+        println!("  {record}");
+    }
+    let failures: Vec<_> = applied.iter().filter(|r| r["ok"] != true).collect();
+    assert!(failures.is_empty(), "operations were rejected: {failures:?}");
+
+    let stored = db.list_objects(&project_id, None).unwrap();
+    println!("--- stored objects: {} ---", stored.len());
+    for object in &stored {
+        println!("  {} {} [{}] {}", object["type"], object["origin"], object["status"], object["title"]);
+    }
+    assert!(!stored.is_empty(), "the turn produced no research objects");
+    // PRODUCT_SCOPE: agent-generated scientific content starts as `proposed`.
+    // Assets are the stated exception, because register_asset records a file
+    // that is already on disk rather than a claim about the world.
+    for object in &stored {
+        if object["type"] == "asset" {
+            assert_eq!(object["origin"], "system");
+            continue;
+        }
+        assert_eq!(
+            object["status"], "proposed",
+            "scientific output must start proposed: {object}"
+        );
+    }
+
+    let _ = std::fs::remove_dir_all(&tmp);
+}
