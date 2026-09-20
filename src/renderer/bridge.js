@@ -34,6 +34,9 @@ window.rescicle = {
     }),
   agentStatus: () => call('agent_status'),
   agentRefresh: () => call('agent_refresh'),
+  // Fires repeatedly while a turn runs, each time with the whole reply so far.
+  onReply: handler =>
+    window.__TAURI__.event.listen('agent:reply', event => handler(event.payload)),
   claudeSetupInfo: () => call('claude_setup_info'),
   copyClaudeSetup: () => call('claude_copy_setup')
 };

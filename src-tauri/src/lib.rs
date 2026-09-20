@@ -7,6 +7,7 @@ pub mod domain;
 pub mod error;
 pub mod files;
 pub mod mcp;
+pub mod partial;
 pub mod settings;
 
 use tauri::Manager;

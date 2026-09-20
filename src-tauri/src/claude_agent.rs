@@ -1,13 +1,32 @@
 use crate::agent::{system_prompt, Structured};
-use crate::error::{err, Result};
+use crate::error::{err, Error, Result};
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::Duration;
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Command;
 
 const TIMEOUT: Duration = Duration::from_millis(180_000);
+
+/// Called with each chunk of assistant text as the CLI produces it.
+pub type OnText = dyn Fn(&str) + Send + Sync;
+
+// The CLI's stream-json output is one JSON event per line. Only two matter: the
+// text deltas, which are what makes the wait bearable, and the closing `result`
+// event, which carries exactly the envelope `--output-format json` used to
+// return whole. Everything else is passed over.
+fn delta_text(event: &Value) -> Option<String> {
+    let inner = event.get("event")?;
+    if inner.get("type")?.as_str()? != "content_block_delta" {
+        return None;
+    }
+    let delta = inner.get("delta")?;
+    if delta.get("type")?.as_str()? != "text_delta" {
+        return None;
+    }
+    Some(delta.get("text")?.as_str()?.to_string())
+}
 
 fn candidate_bins() -> Vec<PathBuf> {
     let mut list = Vec::new();
@@ -111,7 +130,7 @@ impl ClaudeAgent {
         }
     }
 
-    async fn run(&self, args: &[String], stdin: Option<&str>) -> Result<Run> {
+    async fn run(&self, args: &[String], stdin: Option<&str>, on_text: Option<&OnText>) -> Result<Run> {
         let Some(bin) = self.bin() else {
             return err("Claude Codeが見つかりません。claudeコマンドをインストールしてから再試行してください。");
         };
@@ -141,17 +160,52 @@ impl ClaudeAgent {
             pipe.shutdown().await.ok();
         }
 
-        match tokio::time::timeout(TIMEOUT, child.wait_with_output()).await {
-            Err(_) => err("Claude Codeの応答がタイムアウトしました。"),
-            Ok(result) => {
-                let output = result?;
-                Ok(Run {
-                    code: output.status.code().unwrap_or(-1),
-                    out: String::from_utf8_lossy(&output.stdout).into_owned(),
-                    err: String::from_utf8_lossy(&output.stderr).into_owned(),
-                })
+        let stdout = child.stdout.take().expect("stdout is piped");
+        let stderr = child.stderr.take().expect("stderr is piped");
+        // Drained on its own task: stdout is now read to the end before the
+        // child is reaped, and a filled stderr pipe would block the child
+        // there forever.
+        let draining = tokio::spawn(async move {
+            let mut text = String::new();
+            let _ = BufReader::new(stderr).read_to_string(&mut text).await;
+            text
+        });
+
+        let collect = async {
+            let mut raw = String::new();
+            let mut envelope = None;
+            let mut lines = BufReader::new(stdout).lines();
+            while let Some(line) = lines.next_line().await? {
+                if let Ok(event) = serde_json::from_str::<Value>(&line) {
+                    match event.get("type").and_then(Value::as_str) {
+                        Some("stream_event") => {
+                            if let (Some(report), Some(text)) = (on_text, delta_text(&event)) {
+                                report(&text);
+                            }
+                        }
+                        Some("result") => envelope = Some(line.clone()),
+                        _ => {}
+                    }
+                }
+                raw.push_str(&line);
+                raw.push('\n');
             }
-        }
+            Ok::<_, Error>((raw, envelope))
+        };
+
+        let (raw, envelope) = match tokio::time::timeout(TIMEOUT, collect).await {
+            Err(_) => return err("Claude Codeの応答がタイムアウトしました。"),
+            Ok(result) => result?,
+        };
+        let status = child.wait().await?;
+
+        Ok(Run {
+            code: status.code().unwrap_or(-1),
+            // `--version` prints plain text and has no result event, so it falls
+            // back to everything that was printed.
+            out: envelope.unwrap_or(raw),
+            err: draining.await.unwrap_or_default(),
+        })
     }
 
     pub async fn status(&self) -> Value {
@@ -162,7 +216,7 @@ impl ClaudeAgent {
             });
         };
         let bin = bin.to_string_lossy().into_owned();
-        match self.run(&["--version".to_string()], None).await {
+        match self.run(&["--version".to_string()], None, None).await {
             Err(error) => json!({
                 "available": false, "provider": "claude",
                 "error": error.to_string(), "bin": bin, "version": null
@@ -195,8 +249,14 @@ impl ClaudeAgent {
     fn turn_args(session_id: &str, is_new: bool) -> Vec<String> {
         [
             "-p",
+            // stream-json requires --verbose, and the partial messages are the
+            // point of it: they are what reaches the screen while the turn runs.
+            // Its closing `result` event carries the same envelope that
+            // --output-format json used to return in one piece.
+            "--verbose",
             "--output-format",
-            "json",
+            "stream-json",
+            "--include-partial-messages",
             "--system-prompt",
             &system_prompt(),
             "--allowedTools",
@@ -260,21 +320,21 @@ impl ClaudeAgent {
         ))
     }
 
-    async fn turn(&self, session: &mut Option<String>, prompt: &str) -> Result<String> {
+    async fn turn(&self, session: &mut Option<String>, prompt: &str, on_text: Option<&OnText>) -> Result<String> {
         let is_new = session.is_none();
         let mut session_id = session
             .clone()
             .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
 
         let mut run = self
-            .run(&Self::turn_args(&session_id, is_new), Some(prompt))
+            .run(&Self::turn_args(&session_id, is_new), Some(prompt), on_text)
             .await?;
         if run.code != 0 && !is_new {
             // The stored session can be gone (cleared history, another machine):
             // start a fresh one.
             session_id = uuid::Uuid::new_v4().to_string();
             run = self
-                .run(&Self::turn_args(&session_id, true), Some(prompt))
+                .run(&Self::turn_args(&session_id, true), Some(prompt), on_text)
                 .await?;
         }
 
@@ -287,14 +347,18 @@ impl ClaudeAgent {
         &self,
         session: &mut Option<String>,
         prompt: &str,
+        on_text: Option<&OnText>,
     ) -> Result<Structured> {
-        if let Some(parsed) = parse_structured(&self.turn(session, prompt).await?) {
+        if let Some(parsed) = parse_structured(&self.turn(session, prompt, on_text).await?) {
             return Ok(parsed);
         }
+        // The repair turn is not streamed. It asks the model to restate what it
+        // already said, and watching that arrive a second time is noise.
         let retry = self
             .turn(
                 session,
                 "Return the previous answer again as a single JSON object matching the schema, with no other text.",
+                None,
             )
             .await?;
         match parse_structured(&retry) {
@@ -321,7 +385,12 @@ mod tests {
         let index = |flag: &str| first.iter().position(|a| a == flag);
 
         assert!(index("-p").is_some(), "-p is required for headless mode");
-        assert_eq!(first[index("--output-format").unwrap() + 1], "json");
+        assert_eq!(first[index("--output-format").unwrap() + 1], "stream-json");
+        assert!(
+            index("--include-partial-messages").is_some(),
+            "without partial messages there is nothing to show during the turn"
+        );
+        assert!(index("--verbose").is_some(), "stream-json requires --verbose");
         assert!(
             index("--strict-mcp-config").is_some(),
             "rescicle's own MCP server must not load back into the child"

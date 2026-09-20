@@ -105,8 +105,11 @@ button.project-title:hover { background: #eeede9; }
 
 /* A turn runs for seconds to minutes, so the wait is shown inside the thread
    next to the message it belongs to, rather than by disabling the window. */
-.message.thinking { display:flex; align-items:center; gap:8px; color:#6d6b65; }
-.message.thinking .elapsed { font-size:11px; color:#918f87; font-variant-numeric:tabular-nums; }
+.message.thinking { display:flex; flex-direction:column; align-items:flex-start; gap:7px; }
+.message.thinking .stream { white-space:pre-wrap; color:#252521; }
+.message.thinking .stream:empty { display:none; }
+.message.thinking .status { display:flex; align-items:center; gap:8px; color:#6d6b65; font-size:11px; }
+.message.thinking .elapsed { color:#918f87; font-variant-numeric:tabular-nums; }
 .dots { display:inline-flex; gap:3px; }
 .dots i { width:4px; height:4px; border-radius:50%; background:#a3a19a; animation:blink 1.2s infinite; }
 .dots i:nth-child(2) { animation-delay:.2s; }

@@ -34,6 +34,10 @@ let state = {
   // workspace, because the workspace only comes back when the whole turn is
   // done and that is seconds to minutes away.
   pending: null,
+  // The reply as far as it has arrived. The Rust side reads it out of the JSON
+  // the agent is still writing and sends the whole thing each time, so this is
+  // an assignment rather than something to append to.
+  stream: '',
   // render() rebuilds the whole tree, so what the researcher has typed has to
   // live in state or it is lost every time anything else redraws.
   draft: '',
@@ -56,6 +60,20 @@ const fmtElapsed = (ms) => {
 };
 
 async function boot() {
+  // Patch the streaming reply into the bubble directly. render() would rebuild
+  // the tree on every chunk, throwing away the next message being typed and
+  // fighting the scroll position several times a second.
+  api.onReply(text => {
+    if (!state.pending) return;
+    state.stream = text;
+    const node = document.getElementById('streamText');
+    if (!node) { render(); return; }
+    node.textContent = text;
+    const label = document.getElementById('thinkingLabel');
+    if (label) label.textContent = '';
+    const messages = document.getElementById('messages');
+    if (messages) messages.scrollTop = messages.scrollHeight;
+  });
   state.bootstrap = await api.bootstrap();
   state.workspace = state.bootstrap.workspace;
   render();
@@ -260,7 +278,10 @@ function chatHtml() {
   const thread = messages.map(m => `<div class="message ${m.role}">${esc(m.content)}</div>`);
   if (state.pending) {
     thread.push(`<div class="message user">${esc(state.pending.text)}</div>`);
-    thread.push(`<div class="message assistant thinking"><span class="dots"><i></i><i></i><i></i></span>考えています<span class="elapsed" id="thinkingElapsed">${fmtElapsed(Date.now() - state.pending.startedAt)}</span></div>`);
+    thread.push(`<div class="message assistant thinking">
+      <span class="stream" id="streamText">${esc(state.stream)}</span>
+      <span class="status"><span class="dots"><i></i><i></i><i></i></span><span id="thinkingLabel">${state.stream ? '' : '考えています'}</span><span class="elapsed" id="thinkingElapsed">${fmtElapsed(Date.now() - state.pending.startedAt)}</span></span>
+    </div>`);
   }
   return `<div class="chat-head">会話<span class="pill backend-pill" id="backendPill">Claude Code</span><div class="chat-context">${selected ? `対象: ${esc(selected)}` : '研究全体'}</div></div>
     <div class="messages" id="messages">${thread.length ? thread.join('') : '<div class="muted chat-hint">「何を調べている研究か」から普通に話してください。</div>'}</div>
@@ -413,6 +434,7 @@ async function sendMessage() {
   const text = (input?.value ?? state.draft).trim();
   if (!text || state.pending) return;
   state.pending = { text, startedAt: Date.now() };
+  state.stream = '';
   state.draft = '';
   state.error = null;
   render();
@@ -428,6 +450,7 @@ async function sendMessage() {
   }
   stopThinkingTimer();
   state.pending = null;
+  state.stream = '';
   render();
 }
 

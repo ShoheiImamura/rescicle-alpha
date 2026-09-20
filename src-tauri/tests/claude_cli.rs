@@ -61,10 +61,34 @@ fn a_real_turn_produces_research_objects() {
 
     let agent = ClaudeAgent::new(&tmp.join("agent-workspace")).unwrap();
     let mut session: Option<String> = None;
+
+    // Collect what the app would push to the window while the turn runs.
+    let chunks = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    let sink = chunks.clone();
+    let on_text = move |text: &str| {
+        if let Ok(mut got) = sink.lock() {
+            got.push(text.to_string());
+        }
+    };
+
     let structured = tokio::runtime::Runtime::new()
         .unwrap()
-        .block_on(agent.structured_turn(&mut session, &prompt))
+        .block_on(agent.structured_turn(&mut session, &prompt, Some(&on_text)))
         .expect("the turn should come back as the schema says");
+
+    let chunks = chunks.lock().unwrap().clone();
+    println!("--- streamed in {} chunks ---", chunks.len());
+    assert!(
+        chunks.len() > 1,
+        "the turn arrived in one piece, so nothing could have been shown while it ran"
+    );
+    // What the screen was showing has to end up as the reply that gets stored.
+    let streamed = rescicle_lib::partial::partial_reply(&chunks.concat())
+        .expect("the reply should be readable from the streamed document");
+    assert_eq!(
+        streamed, structured.reply,
+        "the streamed text and the parsed reply disagree"
+    );
 
     println!("--- reply ---\n{}", structured.reply);
     println!("--- operations: {} ---", structured.operations.len());

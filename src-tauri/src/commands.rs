@@ -7,7 +7,7 @@ use crate::settings::Settings;
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Emitter, State};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 use tauri_plugin_dialog::DialogExt;
 
@@ -186,6 +186,7 @@ pub fn asset_register(state: State<'_, AppState>, project_id: String, relative_p
 
 #[tauri::command]
 pub async fn agent_send(
+    app: AppHandle,
     state: State<'_, AppState>,
     project_id: String,
     text: String,
@@ -218,7 +219,24 @@ pub async fn agent_send(
         (prompt, root, session)
     };
 
-    let structured = state.agent.structured_turn(&mut session, &prompt).await?;
+    // The reply is read out of the JSON document as it is written and pushed to
+    // the window, so the researcher sees the answer forming instead of a blank
+    // panel. The whole reply so far is sent each time rather than a delta: the
+    // renderer then just replaces the text, with nothing to reassemble or lose.
+    let seen = std::sync::Mutex::new(String::new());
+    let window = app.clone();
+    let on_text = move |chunk: &str| {
+        let Ok(mut buffer) = seen.lock() else { return };
+        buffer.push_str(chunk);
+        if let Some(reply) = crate::partial::partial_reply(&buffer) {
+            let _ = window.emit("agent:reply", reply);
+        }
+    };
+
+    let structured = state
+        .agent
+        .structured_turn(&mut session, &prompt, Some(&on_text))
+        .await?;
 
     let db = lock(&state.db)?;
     let applied = apply_operations(&db, &root, &project_id, &structured.operations);
