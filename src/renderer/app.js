@@ -61,6 +61,12 @@ const fmtElapsed = (ms) => {
   return s < 60 ? `${s}秒` : `${Math.floor(s / 60)}分${String(s % 60).padStart(2, '0')}秒`;
 };
 
+// render() replaces the input element, and an IME composition is bound to the
+// element it started on: redrawing on every keystroke of "neko" tore down the
+// field mid-conversion, so 猫 could never be reached. Nothing is redrawn until
+// the composition is committed.
+let composing = false;
+
 function closeModal() {
   state.modal = null;
   state.error = null;
@@ -82,6 +88,9 @@ async function boot() {
       return;
     }
     if (event.key !== 'Escape') return;
+    // Escape cancels an IME conversion. Taking it here would clear the search
+    // instead of the half-typed word, which is not what was asked for.
+    if (composing || event.isComposing) return;
     // The rename field binds its own Escape; let that one win.
     if (state.renaming) return;
     if (state.modal) { closeModal(); return; }
@@ -519,7 +528,20 @@ function bind() {
   // Only the backdrop itself dismisses; a click that started inside the panel
   // must not close what the researcher is reading.
   document.getElementById('modalWrap')?.addEventListener('click', event => { if (event.target.id === 'modalWrap') closeModal(); });
-  document.getElementById('searchInput')?.addEventListener('input', event => { state.query = event.target.value; render(); });
+  const search = document.getElementById('searchInput');
+  search?.addEventListener('compositionstart', () => { composing = true; });
+  search?.addEventListener('compositionend', event => {
+    composing = false;
+    state.query = event.target.value;
+    render();
+  });
+  search?.addEventListener('input', event => {
+    // Mid-conversion the field holds romaji and kana that are not what is being
+    // searched for. Wait for the IME to commit.
+    if (composing) return;
+    state.query = event.target.value;
+    render();
+  });
   document.getElementById('clearTarget')?.addEventListener('click', () => { state.selectedObjectId = null; state.selectedObject = null; render(); });
   document.getElementById('refreshAgent')?.addEventListener('click', refreshAgent);
   document.getElementById('copyClaudeSetup')?.addEventListener('click', copyClaudeSetup);
