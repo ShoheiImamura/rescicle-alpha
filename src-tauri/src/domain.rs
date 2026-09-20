@@ -9,7 +9,7 @@ pub const OBJECT_TYPES: [&str; 5] = [
     "asset",
 ];
 pub const ORIGINS: [&str; 5] = ["researcher", "agent", "system", "instrument", "imported"];
-pub const STATUSES: [&str; 3] = ["proposed", "confirmed", "rejected"];
+pub const STATUSES: [&str; 4] = ["proposed", "confirmed", "rejected", "archived"];
 pub const PREDICATES: [&str; 6] = [
     "addresses",
     "predicts",

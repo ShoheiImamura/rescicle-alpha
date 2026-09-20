@@ -838,3 +838,48 @@ fn notes_become_a_remark_on_the_object_they_were_about() {
         .expect("H should still be there");
     assert_eq!(once, note_of(&again));
 }
+
+// Archiving is the door 却下 is not. A confirmed claim that has been answered,
+// superseded, or tested and found false is not a mistake and must not be
+// deleted: it is the part of the research that was earned. So it is kept, it
+// survives the purge that takes rejected objects, and it can come back.
+#[test]
+fn an_archived_object_is_kept_where_a_rejected_one_is_deleted() {
+    let tmp = TempDir::new("archive");
+    let research = tmp.path().join("research");
+    std::fs::create_dir_all(&research).unwrap();
+
+    let db = Db::open(&tmp.path().join("rescicle.sqlite")).unwrap();
+    let project_id = str_of(
+        &db.create_project("archive", research.to_str().unwrap()).unwrap(),
+        "id",
+    );
+    let kept = str_of(
+        &db.create_object(&project_id, &object("hypothesis", "反証された仮説", "researcher", "confirmed"), "researcher").unwrap(),
+        "id",
+    );
+    let thrown = str_of(
+        &db.create_object(&project_id, &object("hypothesis", "取り違えた仮説", "agent", "proposed"), "agent").unwrap(),
+        "id",
+    );
+
+    db.update_object_status(&kept, "archived", "researcher").unwrap();
+    db.update_object_status(&thrown, "rejected", "researcher").unwrap();
+
+    // Long past the grace period both have been sitting through.
+    db.purge_rejected_before(&project_id, "9999-01-01T00:00:00.000Z").unwrap();
+
+    let archived = db.get_object(&kept).unwrap().expect("an archived object is kept");
+    assert_eq!(str_of(&archived, "status"), "archived");
+    assert!(
+        db.get_object(&thrown).unwrap().is_none(),
+        "a rejected object is still deleted"
+    );
+
+    // And archiving is not a one-way door, because nothing was destroyed.
+    db.update_object_status(&kept, "confirmed", "researcher").unwrap();
+    assert_eq!(
+        str_of(&db.get_object(&kept).unwrap().unwrap(), "status"),
+        "confirmed"
+    );
+}

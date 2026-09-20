@@ -10,7 +10,11 @@ const TYPE_LABEL = {
   measurement: '測定',
   asset: 'データ'
 };
-const STATUS_LABEL = { proposed: '提案中', confirmed: '確定', rejected: '却下' };
+const STATUS_LABEL = { proposed: '提案中', confirmed: '確定', rejected: '却下', archived: 'アーカイブ' };
+// What is still in play. Rejected is on its way out and archived is done with,
+// and neither belongs on the map or in a list of what the research is now.
+// Search reaches both -- it is the one place that shows everything there is.
+const isLive = o => o.status !== 'rejected' && o.status !== 'archived';
 // There used to be a note type here, with 未整理 / 残す / 不要 standing in for the
 // three states because 確定 and 却下 are not things you do to a remark. Renaming
 // them was the tell: a remark is not a claim and does not need deciding, and it
@@ -84,7 +88,7 @@ let state = {
   // The object the last reject threw away, and until when it can be taken back.
   // REJECTED_GRACE_SECS in src-tauri/src/db.rs is the same window on the side
   // that does the deleting.
-  rejectedNotice: null,
+  decisionNotice: null,
   files: [],
   // The message a turn is running for. It is held here rather than left to the
   // workspace, because the workspace only comes back when the whole turn is
@@ -104,6 +108,9 @@ let state = {
   // Whether to raise the Claude Code offer beside the work. Decided once, when
   // the project is made, so it cannot appear later over a machine that is set up.
   connectOffer: false,
+  // Closed by hand for this session. It comes back on the next launch if nothing
+  // has been decided by then, because that is still the situation.
+  decideHintClosed: false,
   // What Claude Code has registered under `rescicle`, read back when the AI
   // connection screen opens. Null until that answer arrives.
   mcp: null,
@@ -314,7 +321,7 @@ function sidebarHtml() {
   // database, so the count is of what is there.
   const counts = {};
   for (const o of state.workspace.objects || []) {
-    if (o.status === 'rejected') continue;
+    if (!isLive(o)) continue;
     counts[o.type] = (counts[o.type] || 0) + 1;
   }
   // データ takes the files' place in the nav rather than sitting beside it: one
@@ -351,27 +358,50 @@ function noticeHtml() {
   const root = state.rootNotice
     ? `<div class="notice"><span>${esc(state.rootNotice)}</span><button class="btn small" id="dismissNotice">閉じる</button></div>`
     : '';
-  return root + connectNoticeHtml() + rejectedNoticeHtml();
+  return root + decideNoticeHtml() + connectNoticeHtml() + decisionNoticeHtml();
+}
+
+// The moment the first objects appear is the moment the app is about, and until
+// now nothing said what to do with them. The researcher has just watched things
+// arrive on their own; that they are proposals waiting on a decision, and that
+// the decision is theirs, is the one thing the screen never mentioned.
+//
+// It is written as a description of the situation rather than as a step in a
+// tutorial, which is why it has no "seen" flag anywhere. It is shown exactly
+// while the situation holds: something is waiting to be decided and nothing has
+// been decided yet. Deciding one thing ends it, because after that they know.
+// Twenty minutes in with fifteen proposals and no decisions, it is still true
+// and still the thing worth saying -- a one-shot tutorial would have spent
+// itself in the first minute and left nothing.
+function decideNoticeHtml() {
+  if (state.decideHintClosed) return '';
+  const objects = state.workspace?.objects || [];
+  const waiting = objects.some(o => o.status === 'proposed');
+  const decided = objects.some(o => o.status !== 'proposed');
+  if (!waiting || decided) return '';
+  return `<div class="notice"><span>AIが提案したものが現れました。<strong>確かめるのは研究者です。</strong>マップのノードか一覧のカードを開くと、<strong>確定</strong>と<strong>却下</strong>があります。</span>
+    <button class="btn small" id="dismissDecideHint">閉じる</button></div>`;
 }
 
 // Rejecting deletes, so the one thing owed back is the few minutes in which a
 // misplaced press is still a press the researcher remembers making. It sits in
 // the notice slot rather than on the list it left, because the press comes from
 // the detail view and from search just as often.
-function rejectedNoticeHtml() {
-  const notice = state.rejectedNotice;
+function decisionNoticeHtml() {
+  const notice = state.decisionNotice;
   if (!notice || Date.now() >= notice.until) return '';
   const name = `「${esc(notice.title)}」`;
-  const said = notice.type === 'asset'
-    ? `${name}の登録を取り消しました。ファイルはフォルダにそのまま残ります。`
-    : `${name}を却下しました。`;
-  // Back to where it was, which is not the same place for everything: a
-  // registered file was never proposed, so proposed is not a state to return it
-  // to.
-  const back = notice.type === 'asset' ? 'confirmed' : 'proposed';
+  const said = notice.to === 'confirmed'
+    ? `${name}を確定しました。`
+    : notice.type === 'asset'
+      ? `${name}の登録を取り消しました。ファイルはフォルダにそのまま残ります。`
+      : `${name}を却下しました。`;
+  // Rejecting ends in a deletion and confirming does not, so only one of them
+  // has an after to warn about.
+  const after = notice.to === 'rejected' ? 'そのあと削除されます。' : '';
   const left = Math.max(1, Math.ceil((notice.until - Date.now()) / 60000));
-  return `<div class="notice"><span>${said}あと約${left}分は戻せます。そのあと削除されます。</span>
-    <button class="btn small" data-status="${back}" data-target-id="${esc(notice.id)}">戻す</button></div>`;
+  return `<div class="notice"><span>${said}あと約${left}分は戻せます。${after}</span>
+    <button class="btn small" data-status="${esc(notice.from)}" data-target-id="${esc(notice.id)}">戻す</button></div>`;
 }
 
 function projectTitleHtml() {
@@ -429,7 +459,7 @@ function wrapTitle(title, perLine = 13, maxLines = 2) {
 }
 
 function buildMap(objects, relations) {
-  const alive = objects.filter(o => o.status !== 'rejected' && CHAIN.includes(o.type));
+  const alive = objects.filter(o => isLive(o) && CHAIN.includes(o.type));
   const byId = new Map(alive.map(o => [o.id, o]));
   const rank = new Map(CHAIN.map((type, i) => [type, i]));
 
@@ -563,7 +593,7 @@ function searchHtml() {
 // told that about something it can still see.
 function objectListHtml(type) {
   const label = TYPE_LABEL[type] || type;
-  const live = (state.workspace.objects || []).filter(o => o.type === type && o.status !== 'rejected');
+  const live = (state.workspace.objects || []).filter(o => o.type === type && isLive(o));
   const body = live.length
     ? `<div class="object-grid">${live.map(o => cardHtml(o)).join('')}</div>`
     : `<div class="empty">まだ${esc(label)}はありません。右側で研究について話してみてください。</div>`;
@@ -606,7 +636,11 @@ function statusButtonsHtml(o) {
   if (o.status === 'proposed') {
     return `<button class="btn primary small" data-status="confirmed" data-target-id="${o.id}">確定</button><button class="btn danger small" data-status="rejected" data-target-id="${o.id}">却下</button>`;
   }
-  return `<button class="btn small" data-status="proposed" data-target-id="${o.id}">提案中に戻す</button>`;
+  // A settled claim has nothing here. 提案中に戻す stood on every confirmed card
+  // for good, and going back to being under discussion is not a thing anybody
+  // does to a decision they made -- what is real is the few minutes in which the
+  // press was a slip, and those are covered by the notice that follows it.
+  return '';
 }
 
 // `fileLine` replaces the type label for a registered file. Where the card is
@@ -661,7 +695,7 @@ function cardHtml(o, { pinned = false, extraActions = '', fileLine = null } = {}
 // moment the other object is picked.
 function linkSlots(o, ends) {
   const taken = new Set(ends.map(e => `${e.r.predicate}|${e.id}`));
-  const pool = (state.workspace.objects || []).filter(c => c.id !== o.id && c.status !== 'rejected');
+  const pool = (state.workspace.objects || []).filter(c => c.id !== o.id && isLive(c));
   return CHAIN_EDGES
     .filter(e => e.subject === o.type || e.object === o.type)
     .map(e => {
@@ -782,7 +816,32 @@ function expansionHtml(o) {
     <div class="expand-head">つながり</div>${graph}${link}
     ${o.type==='asset' && o.asset ? `<div class="expand-head">ローカルファイル</div><div class="card-body">${esc(o.asset.relative_path)}
 ${fmtSize(o.asset.size_bytes)} · ${esc(o.asset.modified_at)}</div>` : ''}
+    ${archiveHtml(o)}
   </div>`;
+}
+
+// Where a confirmed claim goes when it is done with -- answered, superseded,
+// disproved. 却下 is the wrong door for that: it means the thing was a mistake,
+// and it deletes. A hypothesis that was tested and turned out false is not a
+// mistake, it is the research, and throwing it away would throw away the part
+// that was earned.
+//
+// It sits inside the opened card, in the quiet form that ＋つなぐ and はずす use,
+// rather than beside 確定 and 却下. Those are the everyday decisions, taken many
+// times a session; this one is taken rarely and on purpose, and a button that
+// reads as rare is a button that is not pressed by accident.
+//
+// Nothing is destroyed, so there is no undo window and no warning: coming back
+// is the same quiet press in the other direction, for as long as it is wanted.
+function archiveHtml(o) {
+  if (o.type === 'asset') return '';
+  if (o.status === 'confirmed') {
+    return `<button class="link-add" data-status="archived" data-target-id="${esc(o.id)}" title="片付いたものとして、マップと一覧から外します。消えません">アーカイブする</button>`;
+  }
+  if (o.status === 'archived') {
+    return `<button class="link-add" data-status="confirmed" data-target-id="${esc(o.id)}">アーカイブから戻す</button>`;
+  }
+  return '';
 }
 
 // Registering a file makes a Research Object, and one that nothing points at
@@ -798,7 +857,7 @@ ${fmtSize(o.asset.size_bytes)} · ${esc(o.asset.modified_at)}</div>` : ''}
 // a question, and the データ list stayed empty. The press now does what it says,
 // and the link is an offer on top of a thing that already exists.
 function measurementsOnHand() {
-  return (state.workspace.objects || []).filter(o => o.type === 'measurement' && o.status !== 'rejected');
+  return (state.workspace.objects || []).filter(o => o.type === 'measurement' && isLive(o));
 }
 
 // Only the day. A file's modification time is good to the second, but the
@@ -871,7 +930,7 @@ function fileNoticeHtml() {
 function dataFilesHtml() {
   const assets = new Map(
     (state.workspace.objects || [])
-      .filter(o => o.type === 'asset' && o.status !== 'rejected')
+      .filter(o => o.type === 'asset' && isLive(o))
       .map(o => [o.id, o]),
   );
   const registered = [];
@@ -1082,6 +1141,7 @@ function bind() {
     if (box) { box.focus(); box.setSelectionRange(box.value.length, box.value.length); }
   }));
   document.getElementById('startResearch')?.addEventListener('click', startResearch);
+  document.getElementById('dismissDecideHint')?.addEventListener('click', () => { state.decideHintClosed = true; render(); });
   document.getElementById('dismissConnect')?.addEventListener('click', () => {
     state.connectOffer = false; state.mcpNotice = null; render();
   });
@@ -1114,10 +1174,11 @@ function bind() {
     if (!id) return;
     const before = (state.workspace.objects || []).find(o => o.id === id);
     await api.setObjectStatus(id, b.dataset.status);
-    // Rejecting takes the card off every screen and starts the clock on the row
-    // itself, so it is the one decision that leaves something behind. Any other
-    // decision, 戻す included, clears the offer: it is about the last one.
-    setRejectedNotice(b.dataset.status === 'rejected' ? before : null);
+    // Both decisions leave the offer behind; pressing 戻す, which lands on
+    // proposed, clears it. The notice is about the last decision made, and going
+    // back is not one.
+    const decided = b.dataset.status === 'rejected' || b.dataset.status === 'confirmed';
+    setDecisionNotice(decided ? before : null, b.dataset.status);
     await refreshWorkspace();
     if (state.selectedObject && state.selectedObject.id === id) await loadSelected(id);
     else render();
@@ -1344,16 +1405,25 @@ async function refreshWorkspace() {
 }
 // Must match REJECTED_GRACE_SECS in src-tauri/src/db.rs: the offer has to go
 // before the row it points at does, or 戻す would reach something already gone.
-const REJECT_UNDO_MS = 180_000;
+const UNDO_MS = 180_000;
 let undoTimer = null;
 
-function setRejectedNotice(object) {
+// Whichever way the decision went, and the way back to where it was. Confirming
+// used to leave 提案中に戻す standing on the card for good, which reads as an act
+// nobody performs: a settled claim does not go back to being under discussion.
+// What is real is the few minutes in which the press was a slip -- the same few
+// minutes a rejection gets -- so both decisions leave the same offer and it goes
+// the same way.
+function setDecisionNotice(object, to) {
   if (undoTimer) { clearTimeout(undoTimer); undoTimer = null; }
-  if (!object) { state.rejectedNotice = null; return; }
-  state.rejectedNotice = { id: object.id, title: object.title, type: object.type, until: Date.now() + REJECT_UNDO_MS };
+  if (!object) { state.decisionNotice = null; return; }
+  state.decisionNotice = {
+    id: object.id, title: object.title, type: object.type,
+    from: object.status, to, until: Date.now() + UNDO_MS,
+  };
   // The window closing is a thing that happens on its own, so the screen has to
   // stop offering without waiting to be visited again.
-  undoTimer = setTimeout(() => { undoTimer = null; state.rejectedNotice = null; render(); }, REJECT_UNDO_MS);
+  undoTimer = setTimeout(() => { undoTimer = null; state.decisionNotice = null; render(); }, UNDO_MS);
 }
 
 // Ticks the elapsed label in place. A render() every second would throw away
@@ -1440,11 +1510,12 @@ async function clearRecord() {
     state.workspace = state.bootstrap.workspace;
     Object.assign(state, {
       modal: null, clearing: false, onboardingText: '', connectOffer: false,
+      decideHintClosed: false,
       files: [], selectedObjectId: null, selectedObject: null, linking: null,
-      fileNotice: null, rejectedNotice: null, rootNotice: null,
+      fileNotice: null, decisionNotice: null, rootNotice: null,
       currentScreen: 'map', query: '', draft: '', error: null,
     });
-    setRejectedNotice(null);
+    setDecisionNotice(null);
   } catch (e) { state.error = errText(e); }
   render();
 }

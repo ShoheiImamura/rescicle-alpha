@@ -329,7 +329,7 @@ impl Db {
     }
 
     pub fn update_object_status(&self, object_id: &str, status: &str, actor: &str) -> Result<Value> {
-        if !["proposed", "confirmed", "rejected"].contains(&status) {
+        if !crate::domain::STATUSES.contains(&status) {
             return err("invalid status");
         }
         let object = query_one(&self.conn, "SELECT * FROM objects WHERE id=?", &[&object_id])?
@@ -360,6 +360,8 @@ impl Db {
         status: &str,
         actor: &str,
     ) -> Result<Value> {
+        // A relation has no archived: it is structure, and structure that is done
+        // with is taken out rather than put away.
         if !["proposed", "confirmed", "rejected"].contains(&status) {
             return err("invalid status");
         }

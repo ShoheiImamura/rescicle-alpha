@@ -123,6 +123,11 @@ button.project-title:hover { background: #eeede9; }
 /* Rejected work stays readable and reversible, but should not read as live:
    without this it looked identical to a hypothesis still in play. */
 .card.rejected { background:#faf9f7; border-style:dashed; }
+/* Archived is not discarded: it was real and is done with, so it reads as put
+   away rather than struck out. No line through the title -- that mark means the
+   thing was a mistake, which is the one thing archiving is not saying. */
+.card.archived { background:#f7f7f4; }
+.card.archived .card-title { color:#6b6a64; }
 .card.rejected .card-title { color:#8a8880; text-decoration:line-through; text-decoration-color:#c9c7c0; }
 .card.rejected .card-body { color:#918f87; }
 .section { margin-top:24px; }
