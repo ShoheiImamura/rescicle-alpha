@@ -552,7 +552,7 @@ function projectTitleHtml() {
 function mapHtml() {
   const g = buildMap(state.workspace.objects || [], state.workspace.relations || []);
   return `<div class="page-title"><h1>${esc(state.workspace.project.name)}</h1></div>
-    <div class="muted page-note">問い → 仮説 → 予測 → 測定 → データ のつながりです。右側のAIと話すと、ここが育っていきます。</div>
+    <div class="muted page-note">問い → 仮説 → 予測 → 測定 → データ のつながりです。<strong>仮説はなぜそうなるのか、予測はそれが本当なら何が見えるはずか</strong>で、測るのは予測のほうです。右側のAIと話すと、ここが育っていきます。</div>
     ${mapFigureHtml(g)}
     ${state.selectedObject && CHAIN.includes(state.selectedObject.type)
       // Sticks to the bottom of the column while the map is taller than the
@@ -794,13 +794,31 @@ function searchHtml() {
 // The record is kept rather than deleted, for the agent rather than the screen.
 // It is told not to propose again what has been thrown away, and it can only be
 // told that about something it can still see.
+// What each type is, said on the screen that lists that type. The chain has
+// always been drawn and never explained: the arrow from 仮説 to 予測 says the two
+// are joined and nothing anywhere says how they differ -- which is the one
+// distinction the whole record rests on, and the one that had already blurred.
+// Three of eight predictions were restating their hypothesis in the same words,
+// so testing them would have settled nothing about the claim they hung from.
+//
+// It sits under the heading rather than in a help page, because this is the
+// moment someone is looking at their own hypotheses and can check them against
+// it. The note belongs to the collection, so it is on the collection's screen.
+const TYPE_NOTE = {
+  question: '調べたいこと。仮説はここに答えようとします。',
+  hypothesis: '<strong>なぜ</strong>そうなるのか。機構や原因の主張で、それ自体は直接見えません。「〜が左右している」だけだと、そこから出る予測は「差が出る」しか言えません。何を通して、どちら向きに効くのかまで書けると、予測が具体的になります。',
+  prediction: 'その仮説が本当なら、<strong>何が見えるはずか</strong>。測ればイエスかノーが出る形で書きます。<strong>仮説を見ずに予測だけ読んで、何を測ればいいか分かるか</strong>が目安です。仮説と同じことを言っていたら、それは言い換えであって予測ではありません。',
+  measurement: 'その予測を確かめるために実際にやること。'
+};
+
 function objectListHtml(type) {
   const label = TYPE_LABEL[type] || type;
   const live = (state.workspace.objects || []).filter(o => o.type === type && isLive(o));
   const body = live.length
     ? `<div class="object-grid">${live.map(o => cardHtml(o)).join('')}</div>`
     : `<div class="empty">まだ${esc(label)}はありません。右側で研究について話してみてください。</div>`;
-  return `<div class="page-title"><h1>${esc(label)}</h1></div>${body}`;
+  const note = TYPE_NOTE[type] ? `<div class="muted page-note">${TYPE_NOTE[type]}</div>` : '';
+  return `<div class="page-title"><h1>${esc(label)}</h1></div>${note}${body}`;
 }
 
 // A decision has to be reversible. Rejecting something used to remove the only
