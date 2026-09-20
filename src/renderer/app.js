@@ -1132,7 +1132,16 @@ function bind() {
   // render() rebuilds the card, so what is being typed has to live in state or
   // it is lost the moment anything else redraws -- and something does, when the
   // registration check answers a second or two in.
-  document.getElementById('researchText')?.addEventListener('input', e => { state.onboardingText = e.target.value; });
+  document.getElementById('researchText')?.addEventListener('input', e => {
+    state.onboardingText = e.target.value;
+    // Patched in place rather than re-rendered, for the same reason the streaming
+    // reply is: render() rebuilds the field and the caret goes with it. Without
+    // this the button keeps whatever disabled state it was drawn with, which on a
+    // first run is the one from before anything was typed -- so the researcher
+    // writes out their research and はじめる stays grey.
+    const start = document.getElementById('startResearch');
+    if (start) start.disabled = !e.target.value.trim() || !!state.pending;
+  });
   document.querySelectorAll('[data-starter]').forEach(b => b.addEventListener('click', () => {
     // A starting point, not a submission: it goes into the box to be edited.
     state.onboardingText = b.dataset.starter;
