@@ -17,7 +17,13 @@ const STATUS_LABEL = { proposed: '提案中', confirmed: '確定', rejected: '�
 // is not an object either -- it belongs to the one thing it is about, which is a
 // column on that thing rather than a row joined to it.
 const statusLabel = o => STATUS_LABEL[o.status] || o.status;
-const ORIGIN_LABEL = { researcher: '研究者', agent: 'AI提案', system: 'システム' };
+// Only the two that are ever shown. `system` is in the domain's origins and on
+// rows written before register_asset was told who was registering, but the card
+// suppresses it -- it names neither the researcher nor the agent, so it says
+// nothing -- and a label for a case that never renders tells the next reader
+// there is a third kind of origin to think about. 測定機器 and インポート were
+// here too, for values nothing in the codebase has ever written.
+const ORIGIN_LABEL = { researcher: '研究者', agent: 'AI提案' };
 // Two words for saying no, and one meaning each.
 //
 //   やめる  -- abandon something already started, or decline the thing being
@@ -279,12 +285,12 @@ function mcpNeedsSetup() {
 function connectNoticeHtml() {
   if (!state.connectOffer) return '';
   if (state.mcp?.registered && !state.mcp?.stale) {
-    return `<div class="notice"><span>Claude Codeに登録しました。すでに開いているClaude Codeには、開き直すまで反映されません。</span>
+    return `<div class="notice"><span>Claude Codeに追加しました。すでに開いているClaude Codeには、開き直すまで反映されません。</span>
       <button class="btn small" id="dismissConnect">閉じる</button></div>`;
   }
   if (!mcpNeedsSetup()) return '';
-  return `<div class="notice"><span>Claude Code側からもrescicleを読み書きできます。登録はこの端末で一度だけ、会話するだけなら要りません。</span>
-    <button class="btn small" id="registerMcp"${state.mcpBusy ? ' disabled' : ''}>${state.mcpBusy ? '登録しています…' : '登録する'}</button>
+  return `<div class="notice"><span>Claude Code側からもrescicleを読み書きできます。追加はこの端末で一度だけ、会話するだけなら要りません。</span>
+    <button class="btn small" id="registerMcp"${state.mcpBusy ? ' disabled' : ''}>${state.mcpBusy ? '追加しています…' : '追加する'}</button>
     <button class="btn small" id="dismissConnect">あとで</button></div>`;
 }
 
@@ -988,28 +994,28 @@ function claudeSectionHtml(agent) {
 // one case where nothing on screen would otherwise say anything is wrong.
 function mcpStateHtml() {
   const mcp = state.mcp;
-  if (!mcp) return '<div class="muted settings-note">登録の状態を確認しています…</div>';
-  if (!mcp.checked) return `<div class="error">登録の状態を確認できませんでした: ${esc(mcp.error || 'unknown error')}</div>`;
-  if (!mcp.registered) return '<div class="muted settings-note">まだ登録されていません。</div>';
+  if (!mcp) return '<div class="muted settings-note">追加されているか確認しています…</div>';
+  if (!mcp.checked) return `<div class="error">追加されているか確認できませんでした: ${esc(mcp.error || 'unknown error')}</div>`;
+  if (!mcp.registered) return '<div class="muted settings-note">まだ追加されていません。</div>';
   if (mcp.stale) {
-    return `<div class="error">別の場所のrescicleが登録されています。いまのrescicleに登録し直してください。</div>
-      <div class="muted settings-note">登録されているパス: ${esc(mcp.command || '')}</div>`;
+    return `<div class="error">別の場所のrescicleが追加されています。いまのrescicleに追加し直してください。</div>
+      <div class="muted settings-note">追加されているパス: ${esc(mcp.command || '')}</div>`;
   }
-  return `<div class="connection-ok"><strong>登録済み</strong><div class="muted">${esc(mcp.command || '')}</div></div>`;
+  return `<div class="connection-ok"><strong>追加済み</strong><div class="muted">${esc(mcp.command || '')}</div></div>`;
 }
 
 function mcpSectionHtml(agent) {
   const available = !!(agent.claude || {}).available;
   const registered = state.mcp?.registered && !state.mcp?.stale;
-  const label = state.mcpBusy ? '登録しています…' : registered ? '登録し直す' : 'Claude Codeに登録';
+  const label = state.mcpBusy ? '追加しています…' : registered ? '追加し直す' : 'Claude Codeに追加';
   return `<div class="settings-section"><h3>Claude Code側から操作する</h3>
-    <div class="muted settings-note">rescicleをMCP serverとして登録すると、Claude Code側をUIにしてrescicleを操作できます。画面のチャットだけを使うなら、登録は要りません。</div>
+    <div class="muted settings-note">rescicleをMCP serverとしてClaude Codeに追加すると、Claude Code側をUIにしてrescicleを操作できます。画面のチャットだけを使うなら、追加は要りません。</div>
     ${mcpStateHtml()}
     ${state.mcpNotice ? `<div class="muted settings-note">${esc(state.mcpNotice)}</div>` : ''}
     <div class="actions"><button class="btn small primary" id="registerMcp"${state.mcpBusy || !available ? ' disabled' : ''}>${esc(label)}</button></div>
-    ${available ? '' : '<div class="muted settings-note">Claude Codeが見つからないあいだは登録できません。</div>'}
+    ${available ? '' : '<div class="muted settings-note">Claude Codeが見つからないあいだは追加できません。</div>'}
     <div class="muted settings-note">自分でターミナルから実行したい場合は、同じ内容のコマンドをコピーできます。</div>
-    <button class="btn small settings-action" id="copyClaudeSetup">登録コマンドをコピー</button>
+    <button class="btn small settings-action" id="copyClaudeSetup">追加コマンドをコピー</button>
   </div>`;
 }
 
@@ -1468,7 +1474,7 @@ async function registerMcp() {
 }
 
 async function copyClaudeSetup() {
-  try { await api.copyClaudeSetup(); state.error = null; alert('Claude Code用の登録コマンドをコピーしました。ターミナルで実行してください。'); }
+  try { await api.copyClaudeSetup(); state.error = null; alert('Claude Code用の追加コマンドをコピーしました。ターミナルで実行してください。'); }
   catch (e) { state.error = errText(e); render(); }
 }
 
