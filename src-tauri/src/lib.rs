@@ -55,6 +55,8 @@ pub fn run() {
             commands::agent_refresh,
             commands::agent_send,
             commands::claude_setup_info,
+            commands::claude_mcp_status,
+            commands::claude_mcp_register,
             commands::claude_copy_setup,
         ])
         .run(tauri::generate_context!())

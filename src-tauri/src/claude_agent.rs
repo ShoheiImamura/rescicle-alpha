@@ -9,6 +9,43 @@ use tokio::process::Command;
 
 const TIMEOUT: Duration = Duration::from_millis(180_000);
 
+/// The name rescicle registers itself under in Claude Code's MCP config.
+const MCP_NAME: &str = "rescicle";
+
+// What went wrong, said in the CLI's own words where it said anything at all.
+fn failure_detail(run: &Run) -> String {
+    for text in [&run.err, &run.out] {
+        let trimmed = text.trim();
+        if !trimmed.is_empty() {
+            return trimmed.chars().take(200).collect();
+        }
+    }
+    format!("exit {}", run.code)
+}
+
+// `claude mcp get` prints one `Label: value` per line.
+fn reported_field(text: &str, label: &str) -> Option<String> {
+    text.lines()
+        .find_map(|line| line.trim().strip_prefix(label))
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+// On Windows the same file can be written in either case and with either
+// separator, and none of that makes it a different file. A registration counts
+// as stale only when it names something else.
+fn same_path(left: &str, right: &str) -> bool {
+    fn normalise(path: &str) -> String {
+        let trimmed = path.trim().trim_matches('"');
+        if cfg!(windows) {
+            trimmed.replace('/', "\\").to_lowercase()
+        } else {
+            trimmed.to_string()
+        }
+    }
+    normalise(left) == normalise(right)
+}
+
 /// Called with each chunk of assistant text as the CLI produces it.
 pub type OnText = dyn Fn(&str) + Send + Sync;
 
@@ -221,27 +258,76 @@ impl ClaudeAgent {
                 "available": false, "provider": "claude",
                 "error": error.to_string(), "bin": bin, "version": null
             }),
-            Ok(run) if run.code != 0 => {
-                let detail = if run.err.trim().is_empty() {
-                    if run.out.trim().is_empty() {
-                        format!("exit {}", run.code)
-                    } else {
-                        run.out.trim().to_string()
-                    }
-                } else {
-                    run.err.trim().to_string()
-                };
-                json!({
-                    "available": false, "provider": "claude",
-                    "error": detail.chars().take(200).collect::<String>(),
-                    "bin": bin, "version": null
-                })
-            }
+            Ok(run) if run.code != 0 => json!({
+                "available": false, "provider": "claude",
+                "error": failure_detail(&run), "bin": bin, "version": null
+            }),
             Ok(run) => json!({
                 "available": true, "provider": "claude", "error": null, "bin": bin,
                 "version": run.out.trim().lines().next().unwrap_or("").to_string()
             }),
         }
+    }
+
+    // What Claude Code has registered is read back rather than remembered here.
+    // Its config is the one that decides, and the researcher can change it from a
+    // terminal at any time. `mcp get` exits non-zero when nothing is registered
+    // under the name and prints the command line when something is, which is how
+    // a registration left behind by an earlier build is told from a current one.
+    pub async fn mcp_status(&self, exe: &str) -> Value {
+        if self.bin().is_none() {
+            return json!({
+                "checked": false, "registered": false, "command": null,
+                "stale": false, "error": "claudeコマンドが見つかりません"
+            });
+        }
+        let args = ["mcp", "get", MCP_NAME].map(String::from);
+        match self.run(&args, None, None).await {
+            Err(error) => json!({
+                "checked": false, "registered": false, "command": null,
+                "stale": false, "error": error.to_string()
+            }),
+            // Not registered is an answer rather than a failure: it is what the
+            // researcher opened this screen to fix.
+            Ok(run) if run.code != 0 => json!({
+                "checked": true, "registered": false, "command": null,
+                "stale": false, "error": null
+            }),
+            Ok(run) => {
+                let command = reported_field(&run.out, "Command:");
+                let stale = command.as_deref().is_some_and(|found| !same_path(found, exe));
+                json!({
+                    "checked": true, "registered": true, "command": command,
+                    "stale": stale, "error": null
+                })
+            }
+        }
+    }
+
+    // Registering over a name that is already registered is refused, and a path
+    // left behind by an earlier build is exactly what has to be replaced, so
+    // whatever is there is taken out first. On a first run there is nothing to
+    // remove, and that failing is the ordinary case rather than an error.
+    pub async fn mcp_register(&self, exe: &str) -> Result<()> {
+        let remove = ["mcp", "remove", "--scope", "user", MCP_NAME].map(String::from);
+        let _ = self.run(&remove, None, None).await;
+
+        let mut args: Vec<String> =
+            ["mcp", "add", "--transport", "stdio", "--scope", "user", MCP_NAME, "--"]
+                .iter()
+                .map(|part| part.to_string())
+                .collect();
+        args.push(exe.to_string());
+        args.push("--mcp-server".to_string());
+
+        let run = self.run(&args, None, None).await?;
+        if run.code != 0 {
+            return err(format!(
+                "Claude Codeへの登録に失敗しました: {}",
+                failure_detail(&run)
+            ));
+        }
+        Ok(())
     }
 
     // --strict-mcp-config keeps rescicle's own MCP server from being loaded back into

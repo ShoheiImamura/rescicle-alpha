@@ -378,10 +378,16 @@ pub async fn agent_send(
     })))
 }
 
-fn setup_command() -> String {
-    let exe = std::env::current_exe()
+// The binary Claude Code has to launch to reach the MCP server is this one: the
+// same executable, started again with --mcp-server.
+fn rescicle_exe() -> String {
+    std::env::current_exe()
         .map(|p| p.to_string_lossy().into_owned())
-        .unwrap_or_else(|_| "rescicle".into());
+        .unwrap_or_else(|_| "rescicle".into())
+}
+
+fn setup_command() -> String {
+    let exe = rescicle_exe();
     format!("claude mcp add --transport stdio --scope user rescicle -- \"{exe}\" --mcp-server")
 }
 
@@ -389,12 +395,28 @@ fn setup_command() -> String {
 pub fn claude_setup_info() -> Result<Value> {
     Ok(json!({
         "command": setup_command(),
-        "executable": std::env::current_exe()
-            .map(|p| p.to_string_lossy().into_owned())
-            .unwrap_or_default(),
+        "executable": rescicle_exe(),
     }))
 }
 
+#[tauri::command]
+pub async fn claude_mcp_status(state: State<'_, AppState>) -> Result<Value> {
+    Ok(state.agent.mcp_status(&rescicle_exe()).await)
+}
+
+// rescicle already runs the claude CLI to answer a turn, so it can run the one
+// command that registers it too. Reading the registration back afterwards is
+// what makes the press visible: the screen then says what Claude Code has,
+// rather than what it was asked for.
+#[tauri::command]
+pub async fn claude_mcp_register(state: State<'_, AppState>) -> Result<Value> {
+    let exe = rescicle_exe();
+    state.agent.mcp_register(&exe).await?;
+    Ok(state.agent.mcp_status(&exe).await)
+}
+
+// Kept for the researcher who would rather run it themselves, or who needs the
+// command on a machine where rescicle cannot reach the CLI.
 #[tauri::command]
 pub fn claude_copy_setup(app: AppHandle) -> Result<String> {
     let command = setup_command();

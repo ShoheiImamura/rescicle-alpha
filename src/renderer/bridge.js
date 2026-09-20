@@ -46,5 +46,7 @@ window.rescicle = {
   onReply: handler =>
     window.__TAURI__.event.listen('agent:reply', event => handler(event.payload)),
   claudeSetupInfo: () => call('claude_setup_info'),
+  claudeMcpStatus: () => call('claude_mcp_status'),
+  claudeMcpRegister: () => call('claude_mcp_register'),
   copyClaudeSetup: () => call('claude_copy_setup')
 };

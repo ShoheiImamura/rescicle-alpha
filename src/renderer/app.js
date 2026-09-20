@@ -65,6 +65,14 @@ let state = {
   // live in state or it is lost every time anything else redraws.
   draft: '',
   modal: null,
+  // Set to 'connect' between creating the first project and entering it, and
+  // only while this machine still has something to register.
+  onboardingStep: null,
+  // What Claude Code has registered under `rescicle`, read back when the AI
+  // connection screen opens. Null until that answer arrives.
+  mcp: null,
+  mcpBusy: false,
+  mcpNotice: null,
   renaming: false,
   renameDraft: null,
   rootNotice: null,
@@ -154,6 +162,10 @@ async function boot() {
   state.bootstrap = await api.bootstrap();
   state.workspace = state.bootstrap.workspace;
   render();
+  // Asked here, on a first run only, so that the answer is in hand by the time
+  // the folder has been chosen. Asking after that would put the CLI's second or
+  // two in front of a researcher who has just pressed a button.
+  if (!state.workspace) loadMcpStatus();
 }
 
 function render() {
@@ -164,7 +176,9 @@ function render() {
   const focusedId = focused?.id;
   const caret = focused?.selectionStart ?? null;
 
-  root.innerHTML = state.workspace ? workspaceHtml() : onboardingHtml();
+  root.innerHTML = state.onboardingStep === 'connect'
+    ? connectStepHtml()
+    : state.workspace ? workspaceHtml() : onboardingHtml();
   bind();
 
   const content = document.querySelector('.content');
@@ -191,6 +205,39 @@ function onboardingHtml() {
     <div class="folder-row"><div class="folder-path">${folder ? esc(folder) : '研究データがあるフォルダを選択'}</div><button class="btn" id="chooseFolder">選択</button></div>
     ${state.error ? `<div class="error">${esc(state.error)}</div>` : ''}
     <div class="actions"><button class="btn primary" id="createProject" ${folder ? '' : 'disabled'}>このフォルダで始める</button></div>
+  </div></div>`;
+}
+
+// Registering with Claude Code is about the machine, not the project, so it is
+// worth asking once -- and only while there is still something to register.
+// mcpNeedsSetup() is what decides whether this screen appears at all, so a
+// researcher who has already done it never sees it again.
+function mcpNeedsSetup() {
+  const available = !!state.bootstrap?.agent?.claude?.available;
+  // Before the answer is back, and when the CLI is missing, there is nothing
+  // useful to offer here.
+  if (!available || !state.mcp?.checked) return false;
+  return !state.mcp.registered || state.mcp.stale;
+}
+
+// The conversation is the primary path and it does not come through here, so
+// this step can always be walked past.
+function connectStepHtml() {
+  const claude = state.bootstrap?.agent?.claude || {};
+  const done = state.mcp?.registered && !state.mcp?.stale;
+  const primary = done
+    ? '<button class="btn primary" id="finishConnect">はじめる</button>'
+    : `<button class="btn primary" id="registerMcp"${state.mcpBusy || !claude.available ? ' disabled' : ''}>${state.mcpBusy ? '登録しています…' : 'Claude Codeに登録'}</button>
+       <button class="btn" id="finishConnect">あとで設定する</button>`;
+  return `<div class="onboarding"><div class="onboarding-card">
+    <div class="brand">rescicle</div>
+    <h1>Claude Codeとつなぐ</h1>
+    <div class="muted">登録すると、Claude Code側からもrescicleを読み書きできます。rescicleの画面で話すだけなら、この登録は要りません。</div>
+    ${mcpStateHtml()}
+    ${state.mcpNotice ? `<div class="muted settings-note">${esc(state.mcpNotice)}</div>` : ''}
+    ${state.error ? `<div class="error">${esc(state.error)}</div>` : ''}
+    <div class="actions">${primary}</div>
+    <div class="muted settings-note">あとから「AI接続」でいつでも変更できます。</div>
   </div></div>`;
 }
 
@@ -711,8 +758,37 @@ function claudeSectionHtml(agent) {
   return `<div class="settings-section"><h3>Claude Code</h3>${body}
     <div class="actions"><button class="btn small" id="refreshAgent">状態を更新</button></div>
     <div class="muted settings-note">画面のチャットは、すでにログイン済みのClaude Codeをローカルで実行して応答します。APIキーは不要です。研究フォルダをAIの作業ディレクトリにはせず、会話・研究オブジェクトの要約・ファイル名/サイズ/更新日時を渡します。ファイル本文が渡るのは、ファイル画面であなたが「中身を見せる」を押したものだけで、先頭4KBまでの抜粋です。</div>
-    <div class="muted settings-note">Claude Code側をUIにして操作したい場合は、rescicleをMCP serverとして追加できます。</div>
-    <button class="btn small settings-action" id="copyClaudeSetup">MCP設定コマンドをコピー</button>
+  </div>`;
+}
+
+// What Claude Code has registered, in the words the researcher needs to decide
+// whether to press the button. A path that is not this build's is its own state:
+// the registration looks fine from the terminal and cannot work, which is the
+// one case where nothing on screen would otherwise say anything is wrong.
+function mcpStateHtml() {
+  const mcp = state.mcp;
+  if (!mcp) return '<div class="muted settings-note">登録の状態を確認しています…</div>';
+  if (!mcp.checked) return `<div class="error">登録の状態を確認できませんでした: ${esc(mcp.error || 'unknown error')}</div>`;
+  if (!mcp.registered) return '<div class="muted settings-note">まだ登録されていません。</div>';
+  if (mcp.stale) {
+    return `<div class="error">別の場所のrescicleが登録されています。いまのrescicleに登録し直してください。</div>
+      <div class="muted settings-note">登録されているパス: ${esc(mcp.command || '')}</div>`;
+  }
+  return `<div class="connection-ok"><strong>登録済み</strong><div class="muted">${esc(mcp.command || '')}</div></div>`;
+}
+
+function mcpSectionHtml(agent) {
+  const available = !!(agent.claude || {}).available;
+  const registered = state.mcp?.registered && !state.mcp?.stale;
+  const label = state.mcpBusy ? '登録しています…' : registered ? '登録し直す' : 'Claude Codeに登録';
+  return `<div class="settings-section"><h3>Claude Code側から操作する</h3>
+    <div class="muted settings-note">rescicleをMCP serverとして登録すると、Claude Code側をUIにしてrescicleを操作できます。画面のチャットだけを使うなら、登録は要りません。</div>
+    ${mcpStateHtml()}
+    ${state.mcpNotice ? `<div class="muted settings-note">${esc(state.mcpNotice)}</div>` : ''}
+    <div class="actions"><button class="btn small primary" id="registerMcp"${state.mcpBusy || !available ? ' disabled' : ''}>${esc(label)}</button></div>
+    ${available ? '' : '<div class="muted settings-note">Claude Codeが見つからないあいだは登録できません。</div>'}
+    <div class="muted settings-note">自分でターミナルから実行したい場合は、同じ内容のコマンドをコピーできます。</div>
+    <button class="btn small settings-action" id="copyClaudeSetup">設定コマンドをコピー</button>
   </div>`;
 }
 
@@ -720,22 +796,38 @@ function settingsModalHtml() {
   const agent = state.bootstrap?.agent || {};
   return `<div class="modal-wrap" id="modalWrap"><div class="modal"><h2>AI接続</h2>
     ${claudeSectionHtml(agent)}
+    ${mcpSectionHtml(agent)}
     ${state.error ? `<div class="error">${esc(state.error)}</div>`:''}
     <div class="modal-actions"><button class="btn" id="closeModal">閉じる</button></div></div></div>`;
 }
 function bind() {
+  // render() rebuilds the card, so a name that lives only in the field is lost
+  // every time anything else redraws it -- and something else does now, when the
+  // registration check answers.
+  document.getElementById('projectName')?.addEventListener('input', e => { state.onboardingName = e.target.value; });
   document.getElementById('chooseFolder')?.addEventListener('click', async () => {
     const folder = await api.chooseFolder();
     if (folder) {
       state.onboardingFolder = folder;
-      state.onboardingName = folder.split(/[\\/]/).filter(Boolean).at(-1) || 'Research';
+      // The folder's own name is a suggestion, not a correction: it stands in
+      // only while the researcher has not named the research themselves.
+      if (!state.onboardingName) {
+        state.onboardingName = folder.split(/[\\/]/).filter(Boolean).at(-1) || 'Research';
+      }
       render();
     }
   });
   document.getElementById('createProject')?.addEventListener('click', async () => {
     const name = document.getElementById('projectName').value.trim() || state.onboardingName || 'Research';
     state.workspace = await api.createProject({ name, rootPath: state.onboardingFolder });
-    state.error = null; render();
+    state.error = null;
+    // The answer to this was asked for while the folder was being chosen, so it
+    // is already here and the step costs no wait.
+    if (mcpNeedsSetup()) state.onboardingStep = 'connect';
+    render();
+  });
+  document.getElementById('finishConnect')?.addEventListener('click', () => {
+    state.onboardingStep = null; state.mcpNotice = null; state.error = null; render();
   });
   document.querySelectorAll('[data-nav]').forEach(b => b.addEventListener('click', async () => {
     // Leaving the query set would show results while the nav looked switched.
@@ -873,7 +965,13 @@ function bind() {
   document.getElementById('sendBtn')?.addEventListener('click', sendMessage);
   document.getElementById('chatInput')?.addEventListener('keydown', e => { if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') sendMessage(); });
   document.getElementById('chatInput')?.addEventListener('input', e => { state.draft = e.target.value; });
-  document.getElementById('settingsBtn')?.addEventListener('click', () => { state.modal='settings'; state.error=null; render(); });
+  document.getElementById('settingsBtn')?.addEventListener('click', () => {
+    state.modal = 'settings'; state.error = null; state.mcp = null; state.mcpNotice = null;
+    render();
+    // Asking Claude Code costs a subprocess, so it is asked when the screen that
+    // shows the answer opens rather than on every project open.
+    loadMcpStatus();
+  });
   document.getElementById('closeModal')?.addEventListener('click', closeModal);
   // Only the backdrop itself dismisses; a click that started inside the panel
   // must not close what the researcher is reading.
@@ -894,6 +992,7 @@ function bind() {
   });
   document.getElementById('clearTarget')?.addEventListener('click', () => { state.selectedObjectId = null; state.selectedObject = null; render(); });
   document.getElementById('refreshAgent')?.addEventListener('click', refreshAgent);
+  document.getElementById('registerMcp')?.addEventListener('click', registerMcp);
   document.getElementById('copyClaudeSetup')?.addEventListener('click', copyClaudeSetup);
   const messages = document.getElementById('messages'); if (messages) messages.scrollTop = messages.scrollHeight;
 }
@@ -1002,6 +1101,30 @@ async function refreshAgent() {
   try { state.bootstrap.agent = await api.agentRefresh(); state.error = null; render(); }
   catch (e) { state.error = errText(e); render(); }
 }
+async function loadMcpStatus() {
+  try { state.mcp = await api.claudeMcpStatus(); }
+  catch (e) { state.mcp = { checked: false, registered: false, command: null, stale: false, error: errText(e) }; }
+  // The CLI takes a second or two, so whatever is on screen by the time it
+  // answers is redrawn -- the settings screen, the connect step, or neither.
+  render();
+}
+
+// One press is the whole registration. What comes back is what Claude Code has
+// afterwards, so the section redraws into its real state rather than announcing
+// a success it did not read back.
+async function registerMcp() {
+  state.mcpBusy = true; state.mcpNotice = null; state.error = null;
+  render();
+  try {
+    state.mcp = await api.claudeMcpRegister();
+    if (state.mcp?.registered) {
+      state.mcpNotice = 'すでに開いているClaude Codeには、開き直すまで反映されません。';
+    }
+  } catch (e) { state.error = errText(e); }
+  state.mcpBusy = false;
+  render();
+}
+
 async function copyClaudeSetup() {
   try { await api.copyClaudeSetup(); state.error = null; alert('Claude Code用の設定コマンドをコピーしました。ターミナルで実行してください。'); }
   catch (e) { state.error = errText(e); render(); }
