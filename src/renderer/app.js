@@ -442,7 +442,14 @@ function noticeHtml() {
   const root = state.rootNotice
     ? `<div class="notice"><span>${esc(state.rootNotice)}</span><button class="btn small" id="dismissNotice">閉じる</button></div>`
     : '';
-  return root + decideNoticeHtml() + connectNoticeHtml() + decisionNoticeHtml();
+  // One slot. The file notice used to sit inside the データ column, so
+  // registering a file reported in one place and un-registering the same file
+  // reported in another -- and doing both, which is one minute's work, put two
+  // notice bars on screen in two different shapes saying the same kind of thing.
+  // Un-registering is pressed from a card, which can be on the map or in search,
+  // so it cannot live in that column; registering can, but being able to is not
+  // a reason for the two halves of one act to answer in different places.
+  return root + decideNoticeHtml() + connectNoticeHtml() + decisionNoticeHtml() + fileNoticeHtml();
 }
 
 // The moment the first objects appear is the moment the app is about, and until
@@ -1251,11 +1258,7 @@ function dataFilesHtml() {
   // nobody scrolled to. In a column each, the data stays in view while the
   // folder is read. .file-columns collapses back to one column when the window
   // is too narrow to give each of them a readable width.
-  // The notice goes in the column, not above both of them. It is about a file
-  // that has just become data, so it belongs over the データ it joined -- and it
-  // then takes that column's width, instead of being cut off at the reading
-  // width while the columns beside it ran wider and nothing lined up.
-  const dataColumn = `${fileNoticeHtml()}${registered.length
+  const dataColumn = `${registered.length
       ? group('データ', registered.length,
           `<div class="object-grid">${registered.map(([f, asset]) => cardHtml(asset, {
             fileLine: fileLineHtml(f),
