@@ -206,8 +206,30 @@ button.project-title:hover { background: #eeede9; }
 .compose-actions { display:flex; justify-content:space-between; align-items:center; margin-top:8px; }
 .privacy { font-size:10px; color:#929087; }
 
-.files { display:grid; gap:7px; }
-.file { display:grid; grid-template-columns: minmax(0,1fr) auto auto; gap:10px; align-items:center; padding:9px 10px; background:#fff; border:1px solid #e1e0da; border-radius:9px; }
+/* Rows, not cards. A card is for something being decided about; these are the
+   contents of a folder and there can be hundreds. The hairline is between them
+   rather than around each one, so what is read is the column of names. */
+.files { display:grid; }
+.file { display:grid; grid-template-columns: minmax(0,1fr) auto auto; gap:10px; align-items:center; padding:7px 10px 7px 22px; border-top:1px solid #edece6; }
+.file:first-child { border-top:0; }
+.file:hover { background:#faf9f6; }
+/* The folder's own shape, so a path is not repeated on every row. */
+.tree { display:grid; }
+.tree-dir { padding-bottom:6px; }
+.tree-head { display:flex; align-items:center; gap:7px; width:100%; border:0; background:none; padding:7px 4px; font:inherit; font-size:12px; font-weight:700; color:#44433e; text-align:left; cursor:pointer; border-radius:7px; }
+.tree-head:hover { background:#efeee9; }
+.tree-caret { width:10px; color:#918f87; font-size:10px; }
+.tree-name { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.tree-head .count { margin-left:auto; font-weight:400; }
+/* The part of the path that is not this folder's own name. Dimmed rather than
+   dropped: only folders holding files get a row, so the nesting has gaps in it
+   and the full path is the only thing that says where a folder really sits. */
+.tree-path { color:#a8a69e; font-weight:400; }
+/* At the foot of the folder it acts on, and only while that folder is open --
+   so nothing is registered in bulk without its contents having been looked at
+   first. The count is in the button's own words: 「まとめて登録」 alone does not
+   say how much, and this is the one press here that acts on many things. */
+.tree-bulk { margin:4px 0 2px 22px; }
 .file-name { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; }
 .file-meta { font-size:10px; color:#918f87; white-space:nowrap; }
 /* Something that happened, said plainly. It is not a control and must not read
@@ -388,7 +410,6 @@ button.project-title:hover { background: #eeede9; }
 /* The file row and, under it, the measurement it came out of. Same picking as
    a chain link in a card: no frame until the pointer is on it, and no verb to
    press after choosing. */
-.file-entry { display:grid; gap:6px; }
 .file-link { display:grid; gap:4px; padding:1px 0 5px 10px; }
 .file-link-head { font-size:11px; font-weight:700; color:#6b6a64; }
 .link-pick { display:flex; align-items:baseline; gap:9px; width:100%; text-align:left; border:1px solid transparent; border-radius:10px; background:none; padding:7px 10px; font:inherit; cursor:pointer; }

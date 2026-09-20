@@ -90,6 +90,11 @@ let state = {
   // What the last register did, kept until the researcher moves on. The row it
   // happened to is easy to lose among the others.
   fileNotice: null,
+  // Which folders in the file tree are open. null means nobody has touched one,
+  // so the size of the list decides -- see dirIsOpen().
+  openDirs: null,
+  // The folder a bulk register is working through, so its button can say so.
+  registeringDir: null,
   // The object the last reject threw away, and until when it can be taken back.
   // REJECTED_GRACE_SECS in src-tauri/src/db.rs is the same window on the side
   // that does the deleting.
@@ -1074,13 +1079,83 @@ function readMarkHtml(f) {
   return f.read ? '<div class="file-meta read-mark" title="AIがこのファイルを読みました">読み込み済み</div>' : '<div class="file-meta"></div>';
 }
 
+// A row, not a card. A card is for something the researcher decides about; these
+// are the contents of a folder, and there can be three hundred of them. Boxed,
+// the list was three hundred outlines of equal weight with the filename -- the
+// only thing anyone reads here -- competing with its own border.
 function fileRowHtml(f) {
-  return `<div class="file-entry"><div class="file">
-    <div class="file-name" title="${esc(f.relative_path)}">${esc(f.relative_path)}</div>
+  return `<div class="file">
+    <div class="file-name" title="${esc(f.relative_path)}">${esc(f.name ?? f.relative_path)}</div>
     <div class="file-meta">${fmtSize(f.size_bytes)}</div>
     ${readMarkHtml(f)}
     <button class="btn small" data-register-path="${esc(f.relative_path)}" title="研究のデータとして記録します">データとして登録</button>
-  </div></div>`;
+  </div>`;
+}
+
+// The folder's own shape. A flat list repeats `src\renderer\` on every row and
+// says nothing about where anything is; the researcher is looking for the two
+// CSVs they wrote this morning, and the only thing that helps is knowing which
+// folder those are in. Grouping by directory is that, and it is also what makes
+// registering a folder's worth of files a single act.
+function groupByDirectory(files) {
+  const dirs = new Map();
+  for (const f of files) {
+    const parts = f.relative_path.split(/[\\/]/);
+    const dir = parts.slice(0, -1).join('\\');
+    if (!dirs.has(dir)) dirs.set(dir, []);
+    dirs.get(dir).push({ ...f, name: parts[parts.length - 1] });
+  }
+  return [...dirs.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+}
+
+// Open by default while the whole list still fits on a screen, closed once it
+// does not. Below the threshold, folding costs a click and hides nothing worth
+// hiding; above it, the folders themselves are what the researcher needs to see
+// first. Touching any one of them takes over from the default for the session.
+const DIRS_OPEN_LIMIT = 30;
+
+function dirIsOpen(dir, total) {
+  if (!state.openDirs) return total <= DIRS_OPEN_LIMIT;
+  return state.openDirs.has(dir);
+}
+
+function toggleDir(dir, groups, total) {
+  // Materialise whatever is on screen before flipping one of them, so the first
+  // click opens or closes exactly the folder it was aimed at and leaves the rest
+  // as they were drawn.
+  if (!state.openDirs) {
+    state.openDirs = new Set(groups.filter(([d]) => dirIsOpen(d, total)).map(([d]) => d));
+  }
+  if (state.openDirs.has(dir)) state.openDirs.delete(dir);
+  else state.openDirs.add(dir);
+}
+
+function directoryTreeHtml(files) {
+  const groups = groupByDirectory(files);
+  const total = files.length;
+  return `<div class="tree">${groups.map(([dir, entries]) => {
+    const open = dirIsOpen(dir, total);
+    const parts = dir ? dir.split('\\') : [];
+    // Indented by depth, with everything above the last segment dimmed. Only
+    // folders that hold files get a row, so a nesting drawn from the rows alone
+    // would have gaps in it -- src-tauri\gen\schemas with no src-tauri\gen above
+    // it. Keeping the whole path visible says where it really is; dimming the
+    // part that is not this folder's own name lets the eye read down the column
+    // of names the way it would read a tree.
+    const name = parts.length
+      ? `<span class="tree-path">${esc(parts.slice(0, -1).map(p => p + '\\').join(''))}</span>${esc(parts[parts.length - 1])}`
+      : 'このフォルダの直下';
+    return `<div class="tree-dir" style="padding-left:${parts.length * 13}px">
+      <button class="tree-head ${open ? 'open' : ''}" data-dir="${esc(dir)}">
+        <span class="tree-caret">${open ? '▾' : '▸'}</span>
+        <span class="tree-name">${name}</span>
+        <span class="count">${entries.length}件</span>
+      </button>
+      ${open ? `<div class="files">${entries.map(fileRowHtml).join('')}</div>
+        <button class="link-add tree-bulk" data-register-dir="${esc(dir)}"${state.registeringDir ? ' disabled' : ''}>${
+          state.registeringDir === dir ? '登録しています…' : `この${entries.length}件をまとめて登録`}</button>` : ''}
+    </div>`;
+  }).join('')}</div>`;
 }
 
 // Registering used to change a label three rows down and nothing else, which
@@ -1093,6 +1168,12 @@ function fileNoticeHtml() {
   // The app's one notice look, not a second one: white with a thin border and a
   // button at the right end is exactly what a file row and a card look like, so
   // the notice read as another row in the list it was sitting on top of.
+  // A whole folder at once has no one object to open and no sensible answer to
+  // 「どの測定が生み出したか」, so it says what happened and stops there.
+  if (notice.count > 1) {
+    return `<div class="notice"><span>${esc(notice.path)} の ${notice.count}件をデータとして登録しました。</span>
+      <button class="btn small" id="dismissFileNotice">閉じる</button></div>`;
+  }
   const done = `<div class="notice"><span>${esc(notice.path)} — ${notice.measurement
     ? `「${esc(notice.measurement)}」が生み出したデータとして登録しました。`
     : 'データとして登録しました。'}</span>
@@ -1199,7 +1280,7 @@ function dataFilesHtml() {
     <button class="link-add" id="changeRootHere">別のフォルダに変更</button>
   </div>`;
   const folderBody = plain.length
-    ? `<div class="files">${plain.map(fileRowHtml).join("")}</div>`
+    ? directoryTreeHtml(plain)
     // Nothing to do is not worth a box the size of a list. One line says it.
     : state.files.length
       ? '<div class="muted settings-note">このフォルダのファイルはすべて登録済みです。</div>'
@@ -1518,6 +1599,13 @@ function bind() {
   document.getElementById('scanFiles')?.addEventListener('click', async () => { state.files = await api.scanFiles(state.workspace.project.id); render(); });
   document.querySelectorAll('[data-register-path]').forEach(b => b.addEventListener('click', () =>
     registerFile(b.dataset.registerPath)));
+  document.querySelectorAll('[data-register-dir]').forEach(b => b.addEventListener('click', () =>
+    registerDirectory(b.dataset.registerDir)));
+  document.querySelectorAll('[data-dir]').forEach(b => b.addEventListener('click', () => {
+    const spare = state.files.filter(f => !f.asset_id);
+    toggleDir(b.dataset.dir, groupByDirectory(spare), spare.length);
+    render();
+  }));
   document.querySelectorAll('[data-link-asset]').forEach(b => b.addEventListener('click', () =>
     linkAssetToMeasurement(b.dataset.linkAsset, b.dataset.measurement)));
   document.getElementById('dismissFileNotice')?.addEventListener('click', () => {
@@ -1639,6 +1727,46 @@ async function registerFileForMeasurement(relativePath, measurementId) {
     state.dataPick = null;
     if (state.selectedObjectId) await loadSelected(state.selectedObjectId);
   } catch (e) { state.error = errText(e); }
+  render();
+}
+
+// A folder's worth at once. Registered one at a time underneath, because that is
+// the call the backend validates: each path is resolved against the research
+// folder on its own, so one bad name cannot carry the rest in with it, and a
+// failure part way leaves what already landed registered rather than rolling
+// back work the researcher watched happen. The same stance as the agent's
+// operations -- try each, keep what passes, say what did not.
+//
+// No measurement question afterwards. That question is「この1件はどの測定が生んだか」
+// and it has no sensible answer for twelve files at once; the link is made per
+// file from the card, or from the measurement's own データを登録する.
+async function registerDirectory(dir) {
+  state.error = null;
+  state.fileNotice = null;
+  const projectId = state.workspace.project.id;
+  const targets = state.files.filter(f => {
+    if (f.asset_id) return false;
+    const parts = f.relative_path.split(/[\\/]/);
+    return parts.slice(0, -1).join('\\') === dir;
+  });
+  if (!targets.length) return;
+  state.registeringDir = dir;
+  render();
+  let done = 0;
+  const failed = [];
+  for (const f of targets) {
+    try { await api.registerAsset(projectId, f.relative_path); done++; }
+    catch (e) { failed.push(`${f.relative_path}（${errText(e)}）`); }
+  }
+  try {
+    await refreshWorkspace();
+    state.files = await api.scanFiles(projectId);
+  } catch (e) { state.error = errText(e); }
+  state.registeringDir = null;
+  if (done) state.fileNotice = { path: dir || 'このフォルダの直下', count: done, assetId: null, measurement: null };
+  // Named, not counted. "3件が失敗しました" leaves the researcher to work out
+  // which three, in a folder they just registered all of.
+  if (failed.length) state.error = `登録できなかったファイルがあります: ${failed.join('、')}`;
   render();
 }
 
