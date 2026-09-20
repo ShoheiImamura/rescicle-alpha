@@ -142,7 +142,7 @@ pub fn call_tool(db: &Db, data_dir: &Path, name: &str, args: &Value) -> Result<V
         }
         "register_asset" => {
             let absolute = resolve_project_file(root, &arg_str(args, "relativePath"))?;
-            db.register_asset(&project_id, &absolute)
+            db.register_asset(&project_id, &absolute, "agent")
         }
         other => err(format!("Unknown tool: {other}")),
     }

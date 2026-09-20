@@ -122,7 +122,7 @@ fn smoke() {
 
     assert_eq!(scan_files(&research, 300).len(), 2);
     let asset = db
-        .register_asset(&project_id, &research.join("20K.csv"))
+        .register_asset(&project_id, &research.join("20K.csv"), "researcher")
         .unwrap();
     assert_eq!(str_of(&asset, "type"), "asset");
 
@@ -200,7 +200,7 @@ fn smoke() {
         .is_err());
 
     assert!(db
-        .register_asset(&project_id, &tmp.path().join("outside.txt"))
+        .register_asset(&project_id, &tmp.path().join("outside.txt"), "researcher")
         .is_err());
 }
 
@@ -387,7 +387,7 @@ fn a_measurement_is_run_or_not_regardless_of_its_status() {
 
     // Data came out of it, so it was run -- and the file carries the date.
     db.set_measurement_performed(&m_id, true, None, "researcher").unwrap();
-    let asset = db.register_asset(&project_id, &research.join("run.csv")).unwrap();
+    let asset = db.register_asset(&project_id, &research.join("run.csv"), "researcher").unwrap();
     let file_date = str_of(&db.get_object(&str_of(&asset, "id")).unwrap().unwrap()["asset"], "modified_at");
     db.create_relation(
         &project_id,
@@ -437,7 +437,7 @@ fn a_measurement_is_run_or_not_regardless_of_its_status() {
     std::fs::write(research.join("run2.csv"), "a,b
 3,4
 ").unwrap();
-    let second = db.register_asset(&project_id, &research.join("run2.csv")).unwrap();
+    let second = db.register_asset(&project_id, &research.join("run2.csv"), "researcher").unwrap();
     db.create_relation(
         &project_id,
         &RelationInput {

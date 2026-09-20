@@ -70,7 +70,18 @@ button.project-title:hover { background: #eeede9; }
    width; the map takes the column. Everything shares the left edge, so at the
    sizes where the column is already narrower than 820px nothing moves. */
 .content-inner { max-width: none; }
-.content-inner > *:not(.map-scroll):not(.map-legend) { max-width: 820px; }
+.content-inner > *:not(.map-scroll):not(.map-legend):not(.file-columns) { max-width: 820px; }
+/* Two columns where there is room for both to be read, one where there is not.
+   auto-fit does the deciding, so there is no breakpoint to keep in step with the
+   three-column layout around it. The columns start at the top rather than
+   stretching: one of them is usually much the longer. */
+.file-columns { display: grid; grid-template-columns: repeat(auto-fit, minmax(330px, 1fr)); gap: 22px; align-items: start; }
+/* Only one side has anything, so it takes the width instead of sitting next to
+   an empty box. Capped at the reading width the rest of the column uses. */
+.file-columns.one { grid-template-columns: minmax(0, 820px); }
+.file-columns > div { min-width: 0; }
+/* The first section in a column sits at the top of it, not a heading's gap below. */
+.file-columns > div > .section:first-child { margin-top: 0; }
 .page-title { display:flex; align-items:flex-end; gap:12px; margin-bottom:18px; }
 .page-title h1 { margin:0; font-size:25px; letter-spacing:-.03em; }
 .object-grid { display:grid; gap:10px; }
@@ -80,6 +91,10 @@ button.project-title:hover { background: #eeede9; }
 .card-row { display:flex; gap:10px; align-items:flex-start; }
 .card-main { flex:1; min-width:0; }
 .type { font-size:10px; text-transform:uppercase; letter-spacing:.09em; font-weight:800; color:#8c8a82; }
+/* Stands where .type stands on every other card, but reads as a path rather
+   than a label: no caps, no letter-spacing, and it gives way at the ellipsis
+   because a path is long from the wrong end. */
+.card-file { font-size:11px; color:#8c8a82; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .card-title { font-weight:680; margin-top:4px; line-height:1.35; }
 .card-body { color:#66655f; font-size:13px; margin-top:5px; line-height:1.55; white-space:pre-wrap; }
 .pills { display:flex; gap:5px; margin-top:9px; flex-wrap:wrap; }
@@ -285,6 +300,9 @@ button.root-hint:hover { background: #eeede9; color: #5f5e58; }
 /* What just happened to a file, said where the eye already is. The row changes
    too, but a row that changed while it was being read is not an answer. */
 .file-notice { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:12px; padding:9px 12px; border:1px solid #cfcec7; border-radius:9px; background:#fff; font-size:12px; color:#44433e; }
+/* Without this the text sizes to its content and the button drops to its own
+   line while half the box sits empty beside it. */
+.file-notice span { flex:1; min-width:0; }
 
 /* The file row and, under it, the measurement it came out of. Same picking as
    a chain link in a card: no frame until the pointer is on it, and no verb to

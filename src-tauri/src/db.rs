@@ -551,7 +551,7 @@ impl Db {
         )
     }
 
-    pub fn register_asset(&self, project_id: &str, absolute_path: &Path) -> Result<Value> {
+    pub fn register_asset(&self, project_id: &str, absolute_path: &Path, origin: &str) -> Result<Value> {
         let project = self.require_project(project_id)?;
         let root = resolve(Path::new(&text(&project, "root_path")));
         let abs = resolve(absolute_path);
@@ -573,8 +573,16 @@ impl Db {
             &[&project_id, &rel.as_str()],
         )?;
         if let Some(found) = existing {
+            let id = text(&found, "id");
+            // The record is still there but the researcher threw it away and has
+            // now registered the same file again, which is asking for it back.
+            // Without this the press would hand over a rejected object that no
+            // screen shows, and read as another button that does nothing.
+            if text(&found, "status") == "rejected" {
+                self.update_object_status(&id, "confirmed", origin)?;
+            }
             return self
-                .get_object(&text(&found, "id"))?
+                .get_object(&id)?
                 .ok_or_else(|| Error("object not found".into()));
         }
         let filename = abs
@@ -587,10 +595,10 @@ impl Db {
                 type_: "asset".into(),
                 title: filename,
                 body: None,
-                origin: "system".into(),
+                origin: origin.into(),
                 status: "confirmed".into(),
             },
-            "system",
+            origin,
         )?;
         let object_id = text(&object, "id");
         self.conn.execute(

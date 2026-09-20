@@ -197,7 +197,7 @@ pub fn apply_operations(
             "register_asset" => match &op.path {
                 None => crate::error::err("path required"),
                 Some(path) => resolve_project_file(project_root, path)
-                    .and_then(|absolute| db.register_asset(project_id, &absolute))
+                    .and_then(|absolute| db.register_asset(project_id, &absolute, "agent"))
                     .map(|asset| {
                         let id = asset["id"].as_str().unwrap_or_default().to_string();
                         (json!({ "ok": true, "op": op.op, "id": id }), Some(id))

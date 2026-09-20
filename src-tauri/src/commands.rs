@@ -303,7 +303,7 @@ pub fn asset_register(state: State<'_, AppState>, project_id: String, relative_p
         .get_project(&project_id)?
         .ok_or_else(|| Error("project not found".into()))?;
     let absolute = resolve_project_file(&project_root(&project), &relative_path)?;
-    db.register_asset(&project_id, &absolute)
+    db.register_asset(&project_id, &absolute, "researcher")
 }
 
 #[tauri::command]

@@ -35,6 +35,12 @@ const CHAIN_EDGES = [
 ];
 const MAP = { W: 168, H: 62, COL_GAP: 28, ROW_GAP: 14, HEAD: 26, PAD: 11, LINE: 15 };
 
+// Which screen lists a type. Only assets differ from their own name: a
+// registered file and the file it points at are one thing to the researcher, so
+// they are listed together and the pair has one place in the nav.
+const LIST_SCREEN = { asset: 'files' };
+const screenFor = (type) => LIST_SCREEN[type] || type;
+
 const PREDICATE_LABEL = {
   addresses: '問いに答える', predicts: '予測する', tested_by: '検証される', produces: '生み出す', references: '参照する', related_to: '関連する'
 };
@@ -269,7 +275,14 @@ function sidebarHtml() {
     if (o.status === 'rejected') continue;
     counts[o.type] = (counts[o.type] || 0) + 1;
   }
-  const nav = [['overview','マップ',''], ...Object.entries(TYPE_LABEL).map(([k,label]) => [k,label,counts[k] || 0]), ['files','ファイル','']];
+  // データ takes the files' place in the nav rather than sitting beside it: one
+  // screen lists both, and the count is of the files that are research -- the
+  // rest of the folder is not something the sidebar should be counting.
+  const nav = [
+    ['overview', 'マップ', ''],
+    ...Object.entries(TYPE_LABEL).map(([k, label]) =>
+      k === 'asset' ? ['files', 'データ・ファイル', counts.asset || 0] : [k, label, counts[k] || 0]),
+  ];
   return `<div class="search-box"><input id="searchInput" class="input" type="search" placeholder="検索（Ctrl+F）" value="${esc(state.query)}"></div>
     <div class="nav-title">研究オブジェクト</div>${nav.map(([id,label,count]) => `<button class="nav-btn ${state.currentType===id?'active':''}" data-nav="${id}"><span>${esc(label)}</span><span class="count">${count}</span></button>`).join('')}`;
 }
@@ -295,10 +308,17 @@ function noticeHtml() {
 function rejectedNoticeHtml() {
   const notice = state.rejectedNotice;
   if (!notice || Date.now() >= notice.until) return '';
-  const verb = notice.type === 'note' ? '不要にしました' : '却下しました';
+  const name = `「${esc(notice.title)}」`;
+  const said = notice.type === 'note' ? `${name}を不要にしました。`
+    : notice.type === 'asset' ? `${name}の登録を取り消しました。ファイルはフォルダにそのまま残ります。`
+    : `${name}を却下しました。`;
+  // Back to where it was, which is not the same place for everything: a
+  // registered file was never proposed, so proposed is not a state to return it
+  // to.
+  const back = notice.type === 'asset' ? 'confirmed' : 'proposed';
   const left = Math.max(1, Math.ceil((notice.until - Date.now()) / 60000));
-  return `<div class="notice"><span>「${esc(notice.title)}」を${verb}。あと約${left}分は戻せます。そのあと削除されます。</span>
-    <button class="btn small" data-status="proposed" data-target-id="${esc(notice.id)}">戻す</button></div>`;
+  return `<div class="notice"><span>${said}あと約${left}分は戻せます。そのあと削除されます。</span>
+    <button class="btn small" data-status="${back}" data-target-id="${esc(notice.id)}">戻す</button></div>`;
 }
 
 function projectTitleHtml() {
@@ -516,6 +536,14 @@ function performedButtonHtml(o) {
 }
 
 function statusButtonsHtml(o) {
+  // An asset is not a claim waiting to be decided on. Registering the file was
+  // the decision, and nothing reads a proposed asset differently, so 提案中に戻す
+  // was a verb the object does not have -- the press changed a pill and left the
+  // file registered. The one decision left is whether it stays registered, and
+  // that is 却下: the record goes, the file on disk does not.
+  if (o.type === 'asset') {
+    return `<button class="btn danger small" data-status="rejected" data-target-id="${o.id}" title="ファイルはそのまま、研究の記録から外します">登録を取り消す</button>`;
+  }
   const note = o.type === 'note';
   if (o.status === 'proposed') {
     return `<button class="btn primary small" data-status="confirmed" data-target-id="${o.id}">${note ? '残す' : '確定'}</button><button class="btn danger small" data-status="rejected" data-target-id="${o.id}">${note ? '不要' : '却下'}</button>`;
@@ -523,7 +551,11 @@ function statusButtonsHtml(o) {
   return `<button class="btn small" data-status="proposed" data-target-id="${o.id}">${note ? '戻す' : '提案中に戻す'}</button>`;
 }
 
-function cardHtml(o, { pinned = false } = {}) {
+// `fileLine` replaces the type label for a registered file. Where the card is
+// listed under データ the type is already said by the heading, and what the card
+// cannot otherwise say is which file it is: two runs under different folders
+// share a name, and the title is only the name.
+function cardHtml(o, { pinned = false, extraActions = '', fileLine = null } = {}) {
   const open = state.selectedObjectId === o.id;
   // getObject() carries the relations, and it lands one render later than the click.
   const full = open && state.selectedObject?.id === o.id ? state.selectedObject : null;
@@ -532,7 +564,20 @@ function cardHtml(o, { pinned = false } = {}) {
   const row = pinned
     ? '<div class="card-row">'
     : `<div class="card-row clickable" data-object-id="${o.id}" data-object-type="${esc(o.type)}">`;
-  return `<div class="card ${open ? 'open' : ''} ${o.status}">${row}<div class="card-main"><div class="type">${esc(TYPE_LABEL[o.type] || o.type)}</div><div class="card-title">${esc(o.title)}</div>${o.body ? `<div class="card-body">${esc(o.body)}</div>`:''}<div class="pills"><span class="pill ${o.status}">${esc(statusLabel(o))}</span><span class="pill ${o.origin==='agent'?'agent':''}">${esc(ORIGIN_LABEL[o.origin] || o.origin)}</span>${performedPillHtml(o)}</div></div><div class="card-actions">${performedButtonHtml(o)}${statusButtonsHtml(o)}</div></div>${full ? expansionHtml(full) : ''}</div>`;
+  const head = fileLine !== null
+    ? `<div class="card-file" title="${fileLine}">${fileLine}</div>`
+    : `<div class="type">${esc(TYPE_LABEL[o.type] || o.type)}</div>`;
+  // A registered file has one state worth naming and it is named by being in the
+  // list at all, so the 確定 pill would be a decision nobody made.
+  const status = o.type === 'asset' ? '' : `<span class="pill ${o.status}">${esc(statusLabel(o))}</span>`;
+  // `system` is what register_asset wrote before it was told who was registering,
+  // and there is no way to tell now whether it was the researcher or the agent.
+  // Saying システム names neither of them, so those say nothing at all; the ones
+  // recorded since say 研究者 or AI提案 like everything else.
+  const origin = o.origin === 'system'
+    ? ''
+    : `<span class="pill ${o.origin === 'agent' ? 'agent' : ''}">${esc(ORIGIN_LABEL[o.origin] || o.origin)}</span>`;
+  return `<div class="card ${open ? 'open' : ''} ${o.status}">${row}<div class="card-main">${head}<div class="card-title">${esc(o.title)}</div>${o.body ? `<div class="card-body">${esc(o.body)}</div>`:''}<div class="pills">${status}${origin}${performedPillHtml(o)}</div></div><div class="card-actions">${extraActions}${performedButtonHtml(o)}${statusButtonsHtml(o)}</div></div>${full ? expansionHtml(full) : ''}</div>`;
 }
 
 // The far end a new chain link could have, one slot per edge this object's type
@@ -719,20 +764,30 @@ function fmtDay(iso) {
   return typeof iso === 'string' ? iso.slice(0, 10) : '';
 }
 
-function fileRowHtml(f) {
-  const share = f.shared
+// The folder it is in, not the path: the card's title is already the file name,
+// so the whole path put the name on screen twice and buried the one part of it
+// that tells two runs of the same name apart.
+function fileLineHtml(f) {
+  const cut = Math.max(f.relative_path.lastIndexOf('/'), f.relative_path.lastIndexOf('\\'));
+  const folder = cut > 0 ? f.relative_path.slice(0, cut) : '';
+  return `${folder ? `${esc(folder)} · ` : ''}${fmtSize(f.size_bytes)}`;
+}
+
+// Sharing is a property of the file and has nothing to do with the chain, so it
+// reads the same wherever the file is shown: on its own row, and in the actions
+// of the card it became.
+function shareButtonHtml(f) {
+  return f.shared
     ? `<button class="btn small primary" data-share-path="${esc(f.relative_path)}" data-share="false" title="共有をやめる">共有中</button>`
     : `<button class="btn small" data-share-path="${esc(f.relative_path)}" data-share="true" title="先頭4KBまでをAIに渡します">中身を見せる</button>`;
-  // Registering twice hands back the object that is already there, so the row
-  // says what happened to the file and offers a way to it instead.
-  const register = f.asset_id
-    ? `<button class="btn small" data-open-asset="${esc(f.asset_id)}" title="登録済みです">データを見る</button>`
-    : `<button class="btn small" data-register-path="${esc(f.relative_path)}" title="研究のデータとして記録します">データとして登録</button>`;
+}
+
+function fileRowHtml(f) {
   return `<div class="file-entry"><div class="file ${f.shared ? 'shared' : ''}">
     <div class="file-name" title="${esc(f.relative_path)}">${esc(f.relative_path)}</div>
     <div class="file-meta">${fmtSize(f.size_bytes)}</div>
-    ${share}
-    ${register}
+    ${shareButtonHtml(f)}
+    <button class="btn small" data-register-path="${esc(f.relative_path)}" title="研究のデータとして記録します">データとして登録</button>
   </div></div>`;
 }
 
@@ -760,24 +815,76 @@ function fileNoticeHtml() {
   </div>`;
 }
 
+// One screen for both, because they are one thing to the researcher: a file
+// they have, which either is part of the research record or is not yet. Two
+// lists made that a mapping to hold in your head, and the データ list was the
+// one that could be looked at without ever seeing how anything got into it.
+//
+// Registered first. A research folder holds hundreds of files and a handful of
+// them are the data, so a single flat list would lose the research to the noise
+// of everything sitting next to it.
 function filesHtml() {
+  const assets = new Map(
+    (state.workspace.objects || [])
+      .filter(o => o.type === 'asset' && o.status !== 'rejected')
+      .map(o => [o.id, o]),
+  );
+  const registered = [];
+  const plain = [];
+  for (const f of state.files) {
+    const asset = f.asset_id && assets.get(f.asset_id);
+    if (asset) { registered.push([f, asset]); assets.delete(f.asset_id); }
+    else plain.push(f);
+  }
+  // Whatever object is left over has no file under it any more: registered once,
+  // then moved, renamed or deleted outside rescicle. Saying so beats dropping it
+  // off the screen, which is how it would go unnoticed.
+  const orphaned = [...assets.values()];
   const shared = state.files.filter(f => f.shared).length;
-  const registered = state.files.filter(f => f.asset_id).length;
-  // Two buttons, doing unrelated things, and only one of them had ever been
-  // explained. The promise about file contents is about what the researcher has
-  // chosen, so it says which files those are rather than claiming nothing is
-  // ever sent -- and registering, which sends nothing at all, says so too.
-  return `<div class="page-title"><h1>ファイル</h1><button class="btn small" id="scanFiles">再スキャン</button></div>
-    <div class="muted page-note">研究フォルダにあるファイルの一覧です。rescicleはその場で参照するだけで、移動もコピーもしません。行にあるボタンは2つあり、それぞれ別のことをします。</div>
+
+  const group = (title, count, body) =>
+    `<section class="section"><div class="section-head"><h2>${title}</h2><span class="muted">${count}件</span></div>${body}</section>`;
+
+  // Side by side rather than stacked. A folder holds hundreds of files and a
+  // handful of them are the data, so stacking put the research above a list long
+  // enough to push it off the screen -- and whichever went second was the one
+  // nobody scrolled to. In a column each, the data stays in view while the
+  // folder is read. .file-columns collapses back to one column when the window
+  // is too narrow to give each of them a readable width.
+  const dataColumn = `${registered.length
+      ? group('データ', registered.length,
+          `<div class="object-grid">${registered.map(([f, asset]) => cardHtml(asset, {
+            extraActions: shareButtonHtml(f),
+            fileLine: fileLineHtml(f),
+          })).join('')}</div>`)
+      : '<div class="empty">まだデータはありません。フォルダのファイルから登録できます。</div>'}
+    ${orphaned.length
+      ? group('ファイルが見つからないデータ', orphaned.length,
+          `<div class="muted settings-note">登録したあとに、rescicleの外で移動・改名・削除されたようです。</div>
+           <div class="object-grid">${orphaned.map(o => cardHtml(o, { fileLine: 'ファイルが見つかりません' })).join('')}</div>`)
+      : ''}`;
+
+  const folderColumn = plain.length
+    ? group('フォルダ内のファイル', plain.length, `<div class="files">${plain.map(fileRowHtml).join('')}</div>`)
+    // Nothing to do is not worth a box the size of a list. One line says it.
+    : state.files.length
+      ? '<div class="muted settings-note">フォルダのファイルはすべて登録済みです。</div>'
+      : '<div class="empty">「再スキャン」で研究フォルダを確認します。</div>';
+
+  // Two columns are for when both sides have something to show. With one of them
+  // empty the split just halves the width and puts an empty box in the other
+  // half, so the one that has content takes the whole column.
+  const columns = registered.length && plain.length ? 'file-columns' : 'file-columns one';
+
+  return `<div class="page-title"><h1>データ・ファイル</h1><button class="btn small" id="scanFiles">再スキャン</button></div>
+    <div class="muted page-note">研究フォルダにあるファイルの一覧です。rescicleはその場で参照するだけで、移動もコピーもしません。データとして登録したものが上に並びます。</div>
     <div class="muted file-legend">
       <div><strong>中身を見せる</strong> — そのファイルの本文を、先頭4KBまで抜粋してAIに渡します。いつでも取り消せます。${shared ? `いま${shared}件を共有中です。` : '本文が送られるのは、ここで共有したファイルだけです。'}</div>
-      <div><strong>データとして登録</strong> — そのファイルを研究のデータとして記録し、測定とつなげられるようにします。本文は送られません。${registered ? `いま${registered}件が登録済みです。` : ''}</div>
+      <div><strong>データとして登録</strong> — そのファイルを研究のデータとして記録し、測定とつなげられるようにします。本文は送られません。</div>
     </div>
     ${fileNoticeHtml()}
     ${state.error ? `<div class="error">${esc(state.error)}</div>` : ''}
-    ${state.files.length
-      ? `<div class="files">${state.files.map(fileRowHtml).join('')}</div>`
-      : '<div class="empty">「再スキャン」で研究フォルダを確認します。</div>'}`;
+    <div class="${columns}"><div>${dataColumn}</div><div>${folderColumn}</div></div>`;
 }
 
 function chatHtml() {
@@ -895,8 +1002,8 @@ function bind() {
     state.linking = null;
     if (id === state.selectedObjectId) { state.selectedObjectId = null; state.selectedObject = null; render(); return; }
     // A relation can point at another type, which the current list would not show.
-    const type = el.dataset.objectType;
-    if (type && state.currentType !== 'overview' && state.currentType !== type) state.currentType = type;
+    const screen = el.dataset.objectType && screenFor(el.dataset.objectType);
+    if (screen && state.currentType !== 'overview' && state.currentType !== screen) state.currentType = screen;
     loadSelected(id);
   }));
   document.querySelectorAll('[data-status]').forEach(b => b.addEventListener('click', async (event) => {
@@ -1007,7 +1114,7 @@ function bind() {
     state.fileNotice = null; render();
   });
   document.querySelectorAll('[data-open-asset]').forEach(b => b.addEventListener('click', () => {
-    state.currentType = 'asset'; state.query = ''; state.linking = null; state.fileNotice = null; state.error = null;
+    state.currentType = 'files'; state.query = ''; state.linking = null; state.fileNotice = null; state.error = null;
     loadSelected(b.dataset.openAsset);
   }));
   document.getElementById('sendBtn')?.addEventListener('click', sendMessage);
