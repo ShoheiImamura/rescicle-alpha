@@ -108,6 +108,17 @@ async function boot() {
       box.select();
       return;
     }
+    // Ctrl+K is the way back to the conversation from wherever the researcher
+    // has got to, the way Ctrl+F is the way to search. What is half-typed there
+    // is kept, so the caret goes to the end of it rather than over it.
+    if ((event.ctrlKey || event.metaKey) && (event.key === 'k' || event.key === 'K')) {
+      const box = document.getElementById('chatInput');
+      if (!box) return;
+      event.preventDefault();
+      box.focus();
+      box.setSelectionRange(box.value.length, box.value.length);
+      return;
+    }
     if (event.key !== 'Escape') return;
     // Escape cancels an IME conversion. Taking it here would clear the search
     // instead of the half-typed word, which is not what was asked for.
@@ -115,6 +126,9 @@ async function boot() {
     // The rename field binds its own Escape; let that one win.
     if (state.renaming) return;
     if (state.modal) { closeModal(); return; }
+    // and Escape is the way back out of the box Ctrl+K puts you in, without
+    // touching the message that is being written.
+    if (document.activeElement?.id === 'chatInput') { document.activeElement.blur(); return; }
     if (state.query) { state.query = ''; render(); return; }
     if (state.selectedObjectId) {
       state.selectedObjectId = null;
@@ -624,7 +638,7 @@ function chatHtml() {
   }
   return `<div class="chat-head">会話<span class="pill backend-pill" id="backendPill">Claude Code</span><div class="chat-context">${selected ? `<span class="target-label">対象: ${esc(selected)}</span><button class="clear-target" id="clearTarget" title="研究全体に戻す">×</button>` : '<span class="target-label">研究全体</span>'}</div></div>
     <div class="messages" id="messages">${thread.length ? thread.join('') : '<div class="muted chat-hint">「何を調べている研究か」から普通に話してください。</div>'}</div>
-    <div class="chat-compose"><textarea id="chatInput" class="input" placeholder="研究について話す…">${esc(state.draft)}</textarea>${state.error ? `<div class="error">${esc(state.error)}</div>`:''}<div class="compose-actions"><div class="privacy">本文を送るのは共有したファイルだけです</div><button class="btn primary" id="sendBtn"${state.pending ? ' disabled' : ''}>${state.pending ? '応答待ち…' : '送信'}</button></div></div>`;
+    <div class="chat-compose"><textarea id="chatInput" class="input" placeholder="研究について話す…（Ctrl+K）">${esc(state.draft)}</textarea>${state.error ? `<div class="error">${esc(state.error)}</div>`:''}<div class="compose-actions"><div class="privacy">本文を送るのは共有したファイルだけです</div><button class="btn primary" id="sendBtn"${state.pending ? ' disabled' : ''}>${state.pending ? '応答待ち…' : '送信'}</button></div></div>`;
 }
 
 function claudeSectionHtml(agent) {
