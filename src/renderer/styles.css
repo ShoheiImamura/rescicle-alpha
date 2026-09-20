@@ -233,3 +233,7 @@ button.root-hint:hover { background: #eeede9; color: #5f5e58; }
 /* Same treatment a rejected object gets: still there, still reversible, not live. */
 .rel-row.rejected { background:#faf9f7; border-style:dashed; }
 .rel-row.rejected .rel-title { color:#8a8880; text-decoration:line-through; text-decoration-color:#c9c7c0; }
+
+/* Four controls now: name, size, share, register. */
+.file { grid-template-columns: minmax(0,1fr) auto auto auto; }
+.file.shared { border-color:#bfbeb5; background:#fbfbf8; }

@@ -78,3 +78,14 @@ CREATE TABLE IF NOT EXISTS events (
   created_at TEXT NOT NULL,
   FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
 );
+
+-- Which files the researcher has chosen to let the agent read. Nothing is read
+-- without a row here; the file index it always sees carries names and metadata
+-- only.
+CREATE TABLE IF NOT EXISTS shared_files (
+  project_id TEXT NOT NULL,
+  relative_path TEXT NOT NULL,
+  shared_at TEXT NOT NULL,
+  PRIMARY KEY (project_id, relative_path),
+  FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+);

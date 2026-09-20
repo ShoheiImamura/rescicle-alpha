@@ -48,8 +48,9 @@ claude mcp remove --scope user rescicle
 - 会話テキスト
 - 要約されたResearch Object / Relation
 - 相対ファイル名・サイズ・更新日時
+- **あなたが共有したファイルの抜粋**（先頭4KBまで）
 
-v0ではファイルの中身を自動送信することは**ありません**。
+ファイルの中身が**自動で送られることはありません**。送られるのは、ファイル画面で1件ずつ「中身を見せる」を押したものだけです。共有はいつでも取り消せます。テキストとして読めないファイルは、共有しても送られません。
 
 応答はJSON schemaで `{ reply, operations }` 型に固定されます。operationsはrescicle Coreが検証してからSQLiteに書き込みます。
 

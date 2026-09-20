@@ -35,14 +35,39 @@ pub fn ensure_agent_workspace(work_dir: &Path) -> Result<()> {
     Ok(())
 }
 
-// Shared by every agent backend so each one sees the same research context and the
-// same file boundary: names and metadata only, never raw file contents.
+// How much of a shared file goes into the prompt. A CSV's header and first rows
+// carry nearly all of what makes a measurement interpretable, and stopping here
+// keeps a large capture from dominating the turn.
+const EXCERPT_BYTES: usize = 4096;
+
+// Returns None for anything that is not text: a few kilobytes of a PNG tells the
+// agent nothing and would only spend the turn.
+fn excerpt(path: &Path) -> Option<(String, bool)> {
+    use std::io::Read;
+    let mut bytes = Vec::new();
+    std::fs::File::open(path)
+        .ok()?
+        .take((EXCERPT_BYTES + 1) as u64)
+        .read_to_end(&mut bytes)
+        .ok()?;
+    if bytes.contains(&0) {
+        return None;
+    }
+    let truncated = bytes.len() > EXCERPT_BYTES;
+    bytes.truncate(EXCERPT_BYTES);
+    Some((String::from_utf8_lossy(&bytes).into_owned(), truncated))
+}
+
+// Shared by every agent backend so each one sees the same research context and
+// the same file boundary. The index is names and metadata; the only contents
+// that travel are excerpts of files the researcher has explicitly shared.
 pub fn build_prompt(
     db: &Db,
     project_id: &str,
     text: &str,
     selected_object_id: Option<&str>,
     file_index: &[FileEntry],
+    root: &Path,
 ) -> Result<String> {
     let context = db.context(project_id, selected_object_id)?;
     let safe_files: Vec<Value> = file_index
@@ -56,15 +81,33 @@ pub fn build_prompt(
             })
         })
         .collect();
-    Ok([
+
+    let shared: Vec<Value> = db
+        .shared_files(project_id)?
+        .into_iter()
+        .filter_map(|relative| {
+            let absolute = resolve_project_file(root, &relative).ok()?;
+            let (body, truncated) = excerpt(&absolute)?;
+            Some(json!({ "path": relative, "truncated": truncated, "text": body }))
+        })
+        .collect();
+
+    let mut parts = vec![
         "PROJECT CONTEXT (rescicle local record, summarized):".to_string(),
         context.to_string(),
-        "FILE INDEX (names/metadata only; raw file contents were not sent):".to_string(),
+        "FILE INDEX (names and metadata; contents are not included here):".to_string(),
         json!(safe_files).to_string(),
-        "CURRENT USER MESSAGE:".to_string(),
-        text.to_string(),
-    ]
-    .join("\n\n"))
+    ];
+    if !shared.is_empty() {
+        parts.push(
+            "SHARED FILE EXCERPTS (only files the researcher chose to share, cut at the first few kilobytes):"
+                .to_string(),
+        );
+        parts.push(json!(shared).to_string());
+    }
+    parts.push("CURRENT USER MESSAGE:".to_string());
+    parts.push(text.to_string());
+    Ok(parts.join("\n\n"))
 }
 
 #[derive(Debug, Clone, Deserialize)]

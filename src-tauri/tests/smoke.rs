@@ -289,3 +289,61 @@ fn a_relation_can_be_decided_and_undecided() {
     let events = db.list_relations(&project_id).unwrap();
     assert_eq!(events.len(), 1, "no duplicate relation was created");
 }
+
+// Nothing under the research folder is opened without the researcher having
+// said so, and what travels is an excerpt, not the file.
+#[test]
+fn only_shared_files_reach_the_prompt() {
+    use rescicle_lib::agent::build_prompt;
+    use rescicle_lib::files::scan_files;
+
+    let tmp = TempDir::new("share");
+    let research = tmp.path().join("research");
+    std::fs::create_dir_all(&research).unwrap();
+    std::fs::write(research.join("open.csv"), "temperature,resistance\n20,10.2\n").unwrap();
+    std::fs::write(research.join("private.csv"), "subject,dose\nA,12\n").unwrap();
+    // Longer than the excerpt, so the cut can be seen.
+    std::fs::write(research.join("big.csv"), "x,y\n".repeat(4000)).unwrap();
+    std::fs::write(research.join("photo.png"), [0x89, b'P', b'N', b'G', 0, 1, 2, 3]).unwrap();
+
+    let db = Db::open(&tmp.path().join("rescicle.sqlite")).unwrap();
+    let project_id = str_of(
+        &db.create_project("share", research.to_str().unwrap()).unwrap(),
+        "id",
+    );
+    let files = scan_files(&research, 120);
+    let prompt = |db: &Db| {
+        build_prompt(db, &project_id, "どう思う", None, &files, &research).unwrap()
+    };
+
+    // Nothing shared: every name is listed, no contents anywhere.
+    let before = prompt(&db);
+    assert!(before.contains("private.csv"), "the index should still list it");
+    assert!(!before.contains("subject,dose"), "a file nobody shared was read");
+    assert!(!before.contains("temperature,resistance"));
+    assert!(!before.contains("SHARED FILE EXCERPTS"));
+
+    db.set_file_shared(&project_id, "open.csv", true, "researcher").unwrap();
+    let after = prompt(&db);
+    assert!(after.contains("SHARED FILE EXCERPTS"));
+    assert!(after.contains("temperature,resistance"), "the shared file was not sent");
+    assert!(!after.contains("subject,dose"), "an unshared file came along with it");
+
+    // A long file is cut, and says so.
+    db.set_file_shared(&project_id, "big.csv", true, "researcher").unwrap();
+    let cut = prompt(&db);
+    assert!(cut.contains(r#""truncated":true"#), "a long file was sent whole");
+    assert!(cut.len() < 30_000, "the excerpt did not bound the prompt: {}", cut.len());
+
+    // Sharing a binary shares nothing: a few kilobytes of PNG helps no one.
+    db.set_file_shared(&project_id, "photo.png", true, "researcher").unwrap();
+    let with_binary = prompt(&db);
+    assert!(
+        !with_binary.contains(r#"{"path":"photo.png""#),
+        "a binary file was excerpted into the prompt"
+    );
+
+    // Taking it back takes the contents back out.
+    db.set_file_shared(&project_id, "open.csv", false, "researcher").unwrap();
+    assert!(!prompt(&db).contains("temperature,resistance"));
+}

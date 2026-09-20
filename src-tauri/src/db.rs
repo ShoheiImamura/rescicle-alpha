@@ -474,6 +474,51 @@ impl Db {
             .ok_or_else(|| Error("object not found".into()))
     }
 
+    // Sharing is per file and always the researcher's own act. Without a row
+    // here nothing under the research folder is opened, let alone sent, so the
+    // promise the app makes is enforced by there being no other path to the
+    // bytes rather than by remembering not to take one.
+    pub fn set_file_shared(
+        &self,
+        project_id: &str,
+        relative_path: &str,
+        shared: bool,
+        actor: &str,
+    ) -> Result<()> {
+        self.require_project(project_id)?;
+        if shared {
+            self.conn.execute(
+                "INSERT OR IGNORE INTO shared_files(project_id,relative_path,shared_at) VALUES(?,?,?)",
+                params![project_id, relative_path, now()],
+            )?;
+        } else {
+            self.conn.execute(
+                "DELETE FROM shared_files WHERE project_id=? AND relative_path=?",
+                params![project_id, relative_path],
+            )?;
+        }
+        self.event(
+            project_id,
+            if shared { "file_shared" } else { "file_unshared" },
+            actor,
+            None,
+            None,
+            Some(json!({ "path": relative_path })),
+        )?;
+        Ok(())
+    }
+
+    pub fn shared_files(&self, project_id: &str) -> Result<Vec<String>> {
+        Ok(query_all(
+            &self.conn,
+            "SELECT relative_path FROM shared_files WHERE project_id=? ORDER BY relative_path",
+            &[&project_id],
+        )?
+        .into_iter()
+        .map(|row| text(&row, "relative_path"))
+        .collect())
+    }
+
     pub fn save_message(&self, project_id: &str, role: &str, content: &str) -> Result<Value> {
         if !["user", "assistant"].contains(&role) {
             return err("invalid message role");

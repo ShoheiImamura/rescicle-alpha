@@ -184,7 +184,39 @@ pub fn files_scan(state: State<'_, AppState>, project_id: String) -> Result<Valu
     let project = db
         .get_project(&project_id)?
         .ok_or_else(|| Error("project not found".into()))?;
-    Ok(json!(scan_files(&project_root(&project), 300)))
+    let shared: std::collections::HashSet<String> =
+        db.shared_files(&project_id)?.into_iter().collect();
+    let listed: Vec<Value> = scan_files(&project_root(&project), 300)
+        .into_iter()
+        .map(|file| {
+            let is_shared = shared.contains(&file.relative_path);
+            let mut value = serde_json::to_value(file).unwrap_or(Value::Null);
+            if let Some(map) = value.as_object_mut() {
+                map.insert("shared".into(), json!(is_shared));
+            }
+            value
+        })
+        .collect();
+    Ok(json!(listed))
+}
+
+// Sharing is one file at a time and always something the researcher does; the
+// agent has no way to ask for it.
+#[tauri::command]
+pub fn file_set_shared(
+    state: State<'_, AppState>,
+    project_id: String,
+    relative_path: String,
+    shared: bool,
+) -> Result<Value> {
+    let db = lock(&state.db)?;
+    let project = db
+        .get_project(&project_id)?
+        .ok_or_else(|| Error("project not found".into()))?;
+    // Refuse a path that leaves the research folder before recording it.
+    resolve_project_file(&project_root(&project), &relative_path)?;
+    db.set_file_shared(&project_id, &relative_path, shared, "researcher")?;
+    Ok(json!({ "path": relative_path, "shared": shared }))
 }
 
 #[tauri::command]
@@ -227,6 +259,7 @@ pub async fn agent_send(
             &text,
             selected_object_id.as_deref(),
             &files,
+            &root,
         )?;
         let session = lock(&state.settings)?.session(&project_id);
         (prompt, root, session)

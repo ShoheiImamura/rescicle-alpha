@@ -216,12 +216,11 @@ function projectTitleHtml() {
   </div>`;
 }
 
+// The map page is the chain and nothing else. Notes sit outside the chain that
+// allowed_relation() permits, so they were listed underneath it, but a section
+// whose reason to exist is "the picture above cannot show these" earns its space
+// on the page it belongs to instead: the sidebar already has one.
 function overviewHtml() {
-  const objects = state.workspace.objects || [];
-  // Notes sit outside the chain that allowed_relation() permits, so the map has
-  // nowhere to draw them. Listed under it by what they are rather than by the
-  // reason they are missing from the picture above.
-  const offMap = objects.filter(o => o.status !== 'rejected' && !CHAIN.includes(o.type));
   return `<div class="page-title"><h1>${esc(state.workspace.project.name)}</h1></div>
     <div class="muted page-note">問い → 仮説 → 予測 → 測定 → データ のつながりです。右側のAIと話すと、ここが育っていきます。</div>
     ${mapHtml()}
@@ -231,8 +230,7 @@ function overviewHtml() {
       // hypotheses the detail opened a thousand pixels below the fold, so
       // clicking a node looked like it had done nothing at all.
       ? `<div class="map-detail">${cardHtml(state.selectedObject, { pinned: true })}</div>`
-      : ''}
-    ${offMap.length ? `<section class="section"><div class="section-head"><h2>メモ</h2><span class="muted">連鎖には載りません</span></div><div class="object-grid">${offMap.map(cardHtml).join('')}</div></section>` : ''}`;
+      : ''}`;
 }
 
 // Titles are drawn as SVG <text>, which does not wrap. Break on a character count
@@ -472,8 +470,30 @@ ${fmtSize(o.asset.size_bytes)} · ${esc(o.asset.modified_at)}</div>` : ''}
   </div>`;
 }
 
+function fileRowHtml(f) {
+  const share = f.shared
+    ? `<button class="btn small primary" data-share-path="${esc(f.relative_path)}" data-share="false" title="共有をやめる">共有中</button>`
+    : `<button class="btn small" data-share-path="${esc(f.relative_path)}" data-share="true" title="先頭4KBまでをAIに渡します">中身を見せる</button>`;
+  return `<div class="file ${f.shared ? 'shared' : ''}">
+    <div class="file-name" title="${esc(f.relative_path)}">${esc(f.relative_path)}</div>
+    <div class="file-meta">${fmtSize(f.size_bytes)}</div>
+    ${share}
+    <button class="btn small" data-register-path="${esc(f.relative_path)}">データとして登録</button>
+  </div>`;
+}
+
 function filesHtml() {
-  return `<div class="page-title"><h1>ファイル</h1><button class="btn small" id="scanFiles">再スキャン</button></div><div class="muted page-note">研究フォルダ内のファイル名と基本メタデータだけを表示します。ファイル内容は自動で外部AIへ送りません。</div>${state.files.length ? `<div class="files">${state.files.map(f => `<div class="file"><div class="file-name" title="${esc(f.relative_path)}">${esc(f.relative_path)}</div><div class="file-meta">${fmtSize(f.size_bytes)}</div><button class="btn small" data-register-path="${esc(f.relative_path)}">データとして登録</button></div>`).join('')}</div>` : '<div class="empty">「再スキャン」で研究フォルダを確認します。</div>'}`;
+  const shared = state.files.filter(f => f.shared).length;
+  // The promise is about what the researcher has chosen, so say which files
+  // those are rather than claiming nothing is ever sent.
+  const note = shared
+    ? `本文が送られるのは、共有中の${shared}件だけです。それぞれ先頭4KBまでを抜粋して渡します。`
+    : '一覧はファイル名と基本メタデータだけです。本文は、共有したファイルに限って送られます。';
+  return `<div class="page-title"><h1>ファイル</h1><button class="btn small" id="scanFiles">再スキャン</button></div>
+    <div class="muted page-note">${note}</div>
+    ${state.files.length
+      ? `<div class="files">${state.files.map(fileRowHtml).join('')}</div>`
+      : '<div class="empty">「再スキャン」で研究フォルダを確認します。</div>'}`;
 }
 
 function chatHtml() {
@@ -489,7 +509,7 @@ function chatHtml() {
   }
   return `<div class="chat-head">会話<span class="pill backend-pill" id="backendPill">Claude Code</span><div class="chat-context">${selected ? `<span class="target-label">対象: ${esc(selected)}</span><button class="clear-target" id="clearTarget" title="研究全体に戻す">×</button>` : '<span class="target-label">研究全体</span>'}</div></div>
     <div class="messages" id="messages">${thread.length ? thread.join('') : '<div class="muted chat-hint">「何を調べている研究か」から普通に話してください。</div>'}</div>
-    <div class="chat-compose"><textarea id="chatInput" class="input" placeholder="研究について話す…">${esc(state.draft)}</textarea>${state.error ? `<div class="error">${esc(state.error)}</div>`:''}<div class="compose-actions"><div class="privacy">ファイル本文はAIへ自動送信しません</div><button class="btn primary" id="sendBtn"${state.pending ? ' disabled' : ''}>${state.pending ? '応答待ち…' : '送信'}</button></div></div>`;
+    <div class="chat-compose"><textarea id="chatInput" class="input" placeholder="研究について話す…">${esc(state.draft)}</textarea>${state.error ? `<div class="error">${esc(state.error)}</div>`:''}<div class="compose-actions"><div class="privacy">本文を送るのは共有したファイルだけです</div><button class="btn primary" id="sendBtn"${state.pending ? ' disabled' : ''}>${state.pending ? '応答待ち…' : '送信'}</button></div></div>`;
 }
 
 function claudeSectionHtml(agent) {
@@ -500,7 +520,7 @@ function claudeSectionHtml(agent) {
        <div class="muted settings-note">claudeコマンドをインストールして、rescicleを再起動してください。</div>`;
   return `<div class="settings-section"><h3>Claude Code</h3>${body}
     <div class="actions"><button class="btn small" id="refreshAgent">状態を更新</button></div>
-    <div class="muted settings-note">画面のチャットは、すでにログイン済みのClaude Codeをローカルで実行して応答します。APIキーは不要です。研究フォルダをAIの作業ディレクトリにはせず、会話・研究オブジェクトの要約・ファイル名/サイズ/更新日時だけを渡します。ファイル本文は送信しません。</div>
+    <div class="muted settings-note">画面のチャットは、すでにログイン済みのClaude Codeをローカルで実行して応答します。APIキーは不要です。研究フォルダをAIの作業ディレクトリにはせず、会話・研究オブジェクトの要約・ファイル名/サイズ/更新日時を渡します。ファイル本文が渡るのは、ファイル画面であなたが「中身を見せる」を押したものだけで、先頭4KBまでの抜粋です。</div>
     <div class="muted settings-note">Claude Code側をUIにして操作したい場合は、rescicleをMCP serverとして追加できます。</div>
     <button class="btn small settings-action" id="copyClaudeSetup">MCP設定コマンドをコピー</button>
   </div>`;
@@ -530,7 +550,14 @@ function bind() {
   document.querySelectorAll('[data-nav]').forEach(b => b.addEventListener('click', async () => {
     // Leaving the query set would show results while the nav looked switched.
     state.currentType = b.dataset.nav; state.query = ""; state.selectedObjectId = null; state.selectedObject = null; state.error = null;
-    if (state.currentType === 'files' && !state.files.length) state.files = await api.scanFiles(state.workspace.project.id);
+    try {
+      if (state.currentType === 'files' && !state.files.length) state.files = await api.scanFiles(state.workspace.project.id);
+    } catch (e) {
+      // A throw here used to skip the redraw entirely, so a failing scan made
+      // the sidebar look dead: the click had already moved the state, and
+      // nothing on screen ever caught up with it.
+      state.error = errText(e);
+    }
     render();
   }));
   document.querySelectorAll('[data-object-id]').forEach(el => el.addEventListener('click', event => {
@@ -572,6 +599,17 @@ function bind() {
   document.getElementById('changeRoot')?.addEventListener('click', changeProjectRoot);
   document.getElementById('dismissNotice')?.addEventListener('click', () => { state.rootNotice = null; render(); });
   document.getElementById('scanFiles')?.addEventListener('click', async () => { state.files = await api.scanFiles(state.workspace.project.id); render(); });
+  document.querySelectorAll('[data-share-path]').forEach(b => b.addEventListener('click', async () => {
+    state.error = null;
+    try {
+      await api.setFileShared(state.workspace.project.id, b.dataset.sharePath, b.dataset.share === 'true');
+      state.files = await api.scanFiles(state.workspace.project.id);
+    } catch (e) {
+      // Without this a refusal from the Rust side looked like a dead button.
+      state.error = errText(e);
+    }
+    render();
+  }));
   document.querySelectorAll('[data-register-path]').forEach(b => b.addEventListener('click', async () => {
     await api.registerAsset(state.workspace.project.id, b.dataset.registerPath); await refreshWorkspace(); render();
   }));

@@ -55,6 +55,7 @@ fn a_real_turn_produces_research_objects() {
         "20Kと25Kで試料の抵抗を測ったら、25Kで急に下がった。何か相転移が起きている気がする。",
         None,
         &files,
+        &research,
     )
     .unwrap();
     println!("--- prompt: {} bytes ---", prompt.len());
