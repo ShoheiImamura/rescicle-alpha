@@ -17,7 +17,7 @@ const ORIGIN_LABEL = { researcher: '研究者', agent: 'AI提案', system: 'シ�
 // hypothesis -> prediction -> measurement -> asset, so the map is a layered DAG:
 // one column per type, left to right, and no layout search is needed.
 const CHAIN = ['question', 'hypothesis', 'prediction', 'measurement', 'asset'];
-const MAP = { W: 168, H: 62, COL_GAP: 38, ROW_GAP: 14, HEAD: 26, PAD: 11, LINE: 15 };
+const MAP = { W: 168, H: 62, COL_GAP: 28, ROW_GAP: 14, HEAD: 26, PAD: 11, LINE: 15 };
 
 const PREDICATE_LABEL = {
   addresses: '問いに答える', predicts: '予測する', tested_by: '検証される', produces: '生み出す', references: '参照する', related_to: '関連する'
