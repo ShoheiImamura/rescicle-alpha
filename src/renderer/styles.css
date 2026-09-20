@@ -63,6 +63,11 @@ button.project-title:hover { background: #eeede9; }
 .pill.proposed { border-style:dashed; }
 .pill.agent { border-style:dashed; }
 .pill.rejected { opacity:.55; text-decoration:line-through; }
+/* Rejected work stays readable and reversible, but should not read as live:
+   without this it looked identical to a hypothesis still in play. */
+.card.rejected { background:#faf9f7; border-style:dashed; }
+.card.rejected .card-title { color:#8a8880; text-decoration:line-through; text-decoration-color:#c9c7c0; }
+.card.rejected .card-body { color:#918f87; }
 .section { margin-top:24px; }
 .section-head { display:flex; align-items:center; margin-bottom:9px; }
 .section-head h2 { margin:0; font-size:13px; }
@@ -79,7 +84,11 @@ button.project-title:hover { background: #eeede9; }
 
 .chat { min-width:0; min-height:0; border-left:1px solid #deddd7; background:#fff; display:grid; grid-template-rows: 45px minmax(0,1fr) auto; overflow:hidden; }
 .chat-head { border-bottom:1px solid #ecebe6; padding:0 14px; display:flex; align-items:center; font-size:12px; font-weight:700; }
-.chat-context { margin-left:auto; max-width:190px; color:#8e8d85; font-size:10px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.chat-context { margin-left:auto; max-width:210px; color:#8e8d85; font-size:10px; display:flex; align-items:center; gap:4px; min-width:0; }
+.target-label { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+/* Clicking the node again also clears it, but nothing said so. */
+.clear-target { flex:0 0 auto; border:0; background:transparent; color:#8e8d85; font-size:13px; line-height:1; padding:2px 4px; border-radius:5px; }
+.clear-target:hover { background:#ecebe7; color:#3b3a35; }
 .messages { min-height:0; overflow-y:auto; overscroll-behavior:contain; padding:16px 15px; display:flex; flex-direction:column; gap:12px; }
 .message { max-width:92%; padding:10px 11px; border-radius:11px; font-size:13px; line-height:1.55; white-space:pre-wrap; }
 .message.user { align-self:flex-end; background:#262623; color:#fff; }

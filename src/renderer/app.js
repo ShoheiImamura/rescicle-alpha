@@ -59,7 +59,27 @@ const fmtElapsed = (ms) => {
   return s < 60 ? `${s}秒` : `${Math.floor(s / 60)}分${String(s % 60).padStart(2, '0')}秒`;
 };
 
+function closeModal() {
+  state.modal = null;
+  state.error = null;
+  render();
+}
+
 async function boot() {
+  // Bound once on the document rather than in bind(), which runs on every
+  // render and would stack a new listener each time.
+  document.addEventListener('keydown', event => {
+    if (event.key !== 'Escape') return;
+    // The rename field binds its own Escape; let that one win.
+    if (state.renaming) return;
+    if (state.modal) { closeModal(); return; }
+    if (state.selectedObjectId) {
+      state.selectedObjectId = null;
+      state.selectedObject = null;
+      render();
+    }
+  });
+
   // Patch the streaming reply into the bubble directly. render() would rebuild
   // the tree on every chunk, throwing away the next message being typed and
   // fighting the scroll position several times a second.
@@ -115,7 +135,14 @@ function workspaceHtml() {
 }
 
 function sidebarHtml() {
-  const counts = state.workspace.counts || {};
+  // Counted the way the map draws it: rejected objects are off the map, so
+  // counting them here made the sidebar and the map disagree with no
+  // explanation. They are still listed, at the bottom of their own page.
+  const counts = {};
+  for (const o of state.workspace.objects || []) {
+    if (o.status === 'rejected') continue;
+    counts[o.type] = (counts[o.type] || 0) + 1;
+  }
   const nav = [['overview','マップ',''], ...Object.entries(TYPE_LABEL).map(([k,label]) => [k,label,counts[k] || 0]), ['files','ファイル','']];
   return `<div class="nav-title">研究オブジェクト</div>${nav.map(([id,label,count]) => `<button class="nav-btn ${state.currentType===id?'active':''}" data-nav="${id}"><span>${esc(label)}</span><span class="count">${count}</span></button>`).join('')}`;
 }
@@ -281,12 +308,30 @@ function mapHtml() {
 
 function objectListHtml(type) {
   const label = TYPE_LABEL[type] || type;
-  const objects = (state.workspace.objects || []).filter(o => o.type===type);
-  return `<div class="page-title"><h1>${esc(label)}</h1></div>${objects.length ? `<div class="object-grid">${objects.map(cardHtml).join('')}</div>` : `<div class="empty">まだ${esc(label)}はありません。右側で研究について話してみてください。</div>`}`;
+  const all = (state.workspace.objects || []).filter(o => o.type === type);
+  // Objects are listed newest-touched first, and rejecting something touches it,
+  // so what the researcher just discarded took the top of the list. Rejected
+  // work goes to the bottom, still reachable, under its own heading.
+  const live = all.filter(o => o.status !== 'rejected');
+  const dropped = all.filter(o => o.status === 'rejected');
+  const body = live.length
+    ? `<div class="object-grid">${live.map(o => cardHtml(o)).join('')}</div>`
+    : `<div class="empty">まだ${esc(label)}はありません。右側で研究について話してみてください。</div>`;
+  const rejected = dropped.length
+    ? `<section class="section"><div class="section-head"><h2>却下したもの</h2><span class="muted">${dropped.length}件</span></div><div class="object-grid">${dropped.map(o => cardHtml(o)).join('')}</div></section>`
+    : '';
+  return `<div class="page-title"><h1>${esc(label)}</h1></div>${body}${rejected}`;
 }
 
-function statusButtonsHtml(id) {
-  return `<button class="btn primary small" data-status="confirmed" data-target-id="${id}">確定</button><button class="btn danger small" data-status="rejected" data-target-id="${id}">却下</button>`;
+// A decision has to be reversible. Rejecting something used to remove the only
+// buttons it had, so a researcher who changed their mind had no way back except
+// asking the agent to undo it. Deciding again goes through `proposed` rather
+// than flipping straight over: re-deciding is a decision too.
+function statusButtonsHtml(o) {
+  if (o.status === 'proposed') {
+    return `<button class="btn primary small" data-status="confirmed" data-target-id="${o.id}">確定</button><button class="btn danger small" data-status="rejected" data-target-id="${o.id}">却下</button>`;
+  }
+  return `<button class="btn small" data-status="proposed" data-target-id="${o.id}">提案中に戻す</button>`;
 }
 
 function cardHtml(o, { pinned = false } = {}) {
@@ -298,7 +343,7 @@ function cardHtml(o, { pinned = false } = {}) {
   const row = pinned
     ? '<div class="card-row">'
     : `<div class="card-row clickable" data-object-id="${o.id}" data-object-type="${esc(o.type)}">`;
-  return `<div class="card ${open ? 'open' : ''}">${row}<div class="card-main"><div class="type">${esc(TYPE_LABEL[o.type] || o.type)}</div><div class="card-title">${esc(o.title)}</div>${o.body ? `<div class="card-body">${esc(o.body)}</div>`:''}<div class="pills"><span class="pill ${o.status}">${esc(STATUS_LABEL[o.status] || o.status)}</span><span class="pill ${o.origin==='agent'?'agent':''}">${esc(ORIGIN_LABEL[o.origin] || o.origin)}</span></div></div>${o.status==='proposed' ? `<div class="card-actions">${statusButtonsHtml(o.id)}</div>` : ''}</div>${full ? expansionHtml(full) : ''}</div>`;
+  return `<div class="card ${open ? 'open' : ''} ${o.status}">${row}<div class="card-main"><div class="type">${esc(TYPE_LABEL[o.type] || o.type)}</div><div class="card-title">${esc(o.title)}</div>${o.body ? `<div class="card-body">${esc(o.body)}</div>`:''}<div class="pills"><span class="pill ${o.status}">${esc(STATUS_LABEL[o.status] || o.status)}</span><span class="pill ${o.origin==='agent'?'agent':''}">${esc(ORIGIN_LABEL[o.origin] || o.origin)}</span></div></div><div class="card-actions">${statusButtonsHtml(o)}</div></div>${full ? expansionHtml(full) : ''}</div>`;
 }
 
 // The open half of a card: everything the old detail page added on top of what
@@ -332,7 +377,7 @@ function chatHtml() {
       <span class="status"><span class="dots"><i></i><i></i><i></i></span><span id="thinkingLabel">${state.stream ? '' : '考えています'}</span><span class="elapsed" id="thinkingElapsed">${fmtElapsed(Date.now() - state.pending.startedAt)}</span></span>
     </div>`);
   }
-  return `<div class="chat-head">会話<span class="pill backend-pill" id="backendPill">Claude Code</span><div class="chat-context">${selected ? `対象: ${esc(selected)}` : '研究全体'}</div></div>
+  return `<div class="chat-head">会話<span class="pill backend-pill" id="backendPill">Claude Code</span><div class="chat-context">${selected ? `<span class="target-label">対象: ${esc(selected)}</span><button class="clear-target" id="clearTarget" title="研究全体に戻す">×</button>` : '<span class="target-label">研究全体</span>'}</div></div>
     <div class="messages" id="messages">${thread.length ? thread.join('') : '<div class="muted chat-hint">「何を調べている研究か」から普通に話してください。</div>'}</div>
     <div class="chat-compose"><textarea id="chatInput" class="input" placeholder="研究について話す…">${esc(state.draft)}</textarea>${state.error ? `<div class="error">${esc(state.error)}</div>`:''}<div class="compose-actions"><div class="privacy">ファイル本文はAIへ自動送信しません</div><button class="btn primary" id="sendBtn"${state.pending ? ' disabled' : ''}>${state.pending ? '応答待ち…' : '送信'}</button></div></div>`;
 }
@@ -353,7 +398,7 @@ function claudeSectionHtml(agent) {
 
 function settingsModalHtml() {
   const agent = state.bootstrap?.agent || {};
-  return `<div class="modal-wrap"><div class="modal"><h2>AI接続</h2>
+  return `<div class="modal-wrap" id="modalWrap"><div class="modal"><h2>AI接続</h2>
     ${claudeSectionHtml(agent)}
     ${state.error ? `<div class="error">${esc(state.error)}</div>`:''}
     <div class="modal-actions"><button class="btn" id="closeModal">閉じる</button></div></div></div>`;
@@ -416,7 +461,11 @@ function bind() {
   document.getElementById('chatInput')?.addEventListener('keydown', e => { if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') sendMessage(); });
   document.getElementById('chatInput')?.addEventListener('input', e => { state.draft = e.target.value; });
   document.getElementById('settingsBtn')?.addEventListener('click', () => { state.modal='settings'; state.error=null; render(); });
-  document.getElementById('closeModal')?.addEventListener('click', () => { state.modal=null; state.error=null; render(); });
+  document.getElementById('closeModal')?.addEventListener('click', closeModal);
+  // Only the backdrop itself dismisses; a click that started inside the panel
+  // must not close what the researcher is reading.
+  document.getElementById('modalWrap')?.addEventListener('click', event => { if (event.target.id === 'modalWrap') closeModal(); });
+  document.getElementById('clearTarget')?.addEventListener('click', () => { state.selectedObjectId = null; state.selectedObject = null; render(); });
   document.getElementById('refreshAgent')?.addEventListener('click', refreshAgent);
   document.getElementById('copyClaudeSetup')?.addEventListener('click', copyClaudeSetup);
   const messages = document.getElementById('messages'); if (messages) messages.scrollTop = messages.scrollHeight;
