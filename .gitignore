@@ -6,6 +6,7 @@ src-tauri/gen
 out
 
 .cursor
+debug-*.log
 .vscode
 .idea
 .DS_Store
