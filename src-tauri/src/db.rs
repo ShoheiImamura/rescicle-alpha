@@ -705,7 +705,7 @@ impl Db {
     // decides what it needs and rescicle reads it -- so the record is what is
     // owed instead: the researcher can see what left the folder rather than
     // having been asked to approve each file before anyone knew which mattered.
-    pub fn record_file_read(&self, project_id: &str, relative_path: &str, actor: &str) -> Result<()> {
+    pub fn log_file_read(&self, project_id: &str, relative_path: &str, actor: &str) -> Result<()> {
         self.event(
             project_id,
             "file_read",
@@ -716,7 +716,7 @@ impl Db {
         )
     }
 
-    pub fn files_read(&self, project_id: &str) -> Result<Vec<Value>> {
+    pub fn file_read_log(&self, project_id: &str) -> Result<Vec<Value>> {
         query_all(
             &self.conn,
             "SELECT detail_json, created_at FROM events

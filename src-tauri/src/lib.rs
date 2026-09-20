@@ -53,7 +53,6 @@ pub fn run() {
             commands::agent_status,
             commands::agent_refresh,
             commands::agent_send,
-            commands::claude_setup_info,
             commands::record_clear,
             commands::claude_mcp_status,
             commands::claude_mcp_register,

@@ -264,7 +264,7 @@ pub fn files_scan(state: State<'_, AppState>, project_id: String) -> Result<Valu
     // Which files the agent has read, so the list can say so. It is a record of
     // what happened, not a setting: nothing here decides what it may read next.
     let read: std::collections::HashSet<String> = db
-        .files_read(&project_id)?
+        .file_read_log(&project_id)?
         .into_iter()
         .filter_map(|row| {
             let detail = row.get("detail_json")?.as_str()?;
@@ -412,7 +412,7 @@ pub async fn agent_send(
     // What left the folder is worth being able to look up afterwards. It is the
     // whole of what replaced asking permission for each file up front.
     for path in &was_read {
-        db.record_file_read(&project_id, path, "agent")?;
+        db.log_file_read(&project_id, path, "agent")?;
     }
     let applied = apply_operations(&db, &root, &project_id, &structured.operations);
     db.save_message(&project_id, "assistant", &structured.reply)?;
@@ -458,14 +458,6 @@ pub fn record_clear(state: State<'_, AppState>) -> Result<Value> {
     settings.project_claude_sessions.clear();
     state.save_settings(&settings)?;
     Ok(json!({ "removed": removed }))
-}
-
-#[tauri::command]
-pub fn claude_setup_info() -> Result<Value> {
-    Ok(json!({
-        "command": setup_command(),
-        "executable": rescicle_exe(),
-    }))
 }
 
 #[tauri::command]

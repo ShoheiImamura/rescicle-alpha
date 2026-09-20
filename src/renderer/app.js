@@ -17,7 +17,7 @@ const STATUS_LABEL = { proposed: '提案中', confirmed: '確定', rejected: '�
 // is not an object either -- it belongs to the one thing it is about, which is a
 // column on that thing rather than a row joined to it.
 const statusLabel = o => STATUS_LABEL[o.status] || o.status;
-const ORIGIN_LABEL = { researcher: '研究者', agent: 'AI提案', system: 'システム', instrument: '測定機器', imported: 'インポート' };
+const ORIGIN_LABEL = { researcher: '研究者', agent: 'AI提案', system: 'システム' };
 // Two words for saying no, and one meaning each.
 //
 //   やめる  -- abandon something already started, or decline the thing being
@@ -644,7 +644,7 @@ function cardHtml(o, { pinned = false, extraActions = '', fileLine = null } = {}
   // does not: 登録を取り消す on an asset is bookkeeping, and the map is not where
   // the books are kept. The list the object lives on still has it.
   const actions = pinned
-    ? `<button class="btn small primary" id="talkAbout">チャットで相談する</button>${o.type === 'asset' ? '' : performedButtonHtml(o) + statusButtonsHtml(o)}`
+    ? `<button class="btn small primary" id="talkAbout">これについて話す</button>${o.type === 'asset' ? '' : performedButtonHtml(o) + statusButtonsHtml(o)}`
     : `${extraActions}${performedButtonHtml(o)}${statusButtonsHtml(o)}`;
   return `<div class="card ${open ? 'open' : ''} ${o.status}">${row}<div class="card-main">${head}<div class="card-title">${esc(o.title)}</div>${o.body ? `<div class="card-body">${esc(o.body)}</div>`:''}${o.note ? `<div class="card-note">${esc(o.note)}</div>`:''}<div class="pills">${status}${origin}${performedPillHtml(o)}</div></div><div class="card-actions">${actions}</div></div>${full ? expansionHtml(full) : ''}</div>`;
 }
@@ -719,7 +719,7 @@ function expansionHtml(o) {
     if (r.status === 'proposed') return `<button class="btn primary small" data-relation-status="confirmed" data-relation-id="${r.id}">確定</button>${drop}`;
     // Links rejected before they could be removed are still in the database.
     // The state is out of the vocabulary now, so give those rows both ways out.
-    if (r.status === 'rejected') return `<button class="btn small" data-relation-status="proposed" data-relation-id="${r.id}" title="このつながりを提案中に戻す">戻す</button>${drop}`;
+    if (r.status === 'rejected') return `<button class="btn small" data-relation-status="proposed" data-relation-id="${r.id}" title="このつながりを提案中に戻す">提案中に戻す</button>${drop}`;
     return drop;
   };
 
@@ -1009,7 +1009,7 @@ function mcpSectionHtml(agent) {
     <div class="actions"><button class="btn small primary" id="registerMcp"${state.mcpBusy || !available ? ' disabled' : ''}>${esc(label)}</button></div>
     ${available ? '' : '<div class="muted settings-note">Claude Codeが見つからないあいだは登録できません。</div>'}
     <div class="muted settings-note">自分でターミナルから実行したい場合は、同じ内容のコマンドをコピーできます。</div>
-    <button class="btn small settings-action" id="copyClaudeSetup">設定コマンドをコピー</button>
+    <button class="btn small settings-action" id="copyClaudeSetup">登録コマンドをコピー</button>
   </div>`;
 }
 
@@ -1468,7 +1468,7 @@ async function registerMcp() {
 }
 
 async function copyClaudeSetup() {
-  try { await api.copyClaudeSetup(); state.error = null; alert('Claude Code用の設定コマンドをコピーしました。ターミナルで実行してください。'); }
+  try { await api.copyClaudeSetup(); state.error = null; alert('Claude Code用の登録コマンドをコピーしました。ターミナルで実行してください。'); }
   catch (e) { state.error = errText(e); render(); }
 }
 
