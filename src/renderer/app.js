@@ -50,8 +50,13 @@ let state = {
   // The object whose link picker is open, if any. Nothing is half-entered while
   // it is open -- picking is the whole act -- so this is all there is to keep.
   linking: null,
-  // The file whose "which measurement produced this" list is open, if any.
-  registering: null,
+  // What the last register did, kept until the researcher moves on. The row it
+  // happened to is easy to lose among the others.
+  fileNotice: null,
+  // The object the last reject threw away, and until when it can be taken back.
+  // REJECTED_GRACE_SECS in src-tauri/src/db.rs is the same window on the side
+  // that does the deleting.
+  rejectedNotice: null,
   files: [],
   // The message a turn is running for. It is held here rather than left to the
   // workspace, because the workspace only comes back when the whole turn is
@@ -257,7 +262,8 @@ function workspaceHtml() {
 function sidebarHtml() {
   // Counted the way the map draws it: rejected objects are off the map, so
   // counting them here made the sidebar and the map disagree with no
-  // explanation. They are still listed, at the bottom of their own page.
+  // explanation. They are off the lists too now, and on their way out of the
+  // database, so the count is of what is there.
   const counts = {};
   for (const o of state.workspace.objects || []) {
     if (o.status === 'rejected') continue;
@@ -276,8 +282,23 @@ function contentHtml() {
 }
 
 function noticeHtml() {
-  if (!state.rootNotice) return '';
-  return `<div class="notice"><span>${esc(state.rootNotice)}</span><button class="btn small" id="dismissNotice">閉じる</button></div>`;
+  const root = state.rootNotice
+    ? `<div class="notice"><span>${esc(state.rootNotice)}</span><button class="btn small" id="dismissNotice">閉じる</button></div>`
+    : '';
+  return root + rejectedNoticeHtml();
+}
+
+// Rejecting deletes, so the one thing owed back is the few minutes in which a
+// misplaced press is still a press the researcher remembers making. It sits in
+// the notice slot rather than on the list it left, because the press comes from
+// the detail view and from search just as often.
+function rejectedNoticeHtml() {
+  const notice = state.rejectedNotice;
+  if (!notice || Date.now() >= notice.until) return '';
+  const verb = notice.type === 'note' ? '不要にしました' : '却下しました';
+  const left = Math.max(1, Math.ceil((notice.until - Date.now()) / 60000));
+  return `<div class="notice"><span>「${esc(notice.title)}」を${verb}。あと約${left}分は戻せます。そのあと削除されます。</span>
+    <button class="btn small" data-status="proposed" data-target-id="${esc(notice.id)}">戻す</button></div>`;
 }
 
 function projectTitleHtml() {
@@ -435,7 +456,8 @@ function mapHtml() {
     <div class="map-legend"><span>実線 = 確定</span><span>破線 = 提案中（AI提案）</span><span>ノードをクリックすると詳細が開きます</span></div>`;
 }
 
-// Searches across every type at once, including rejected objects: the reason to
+// Searches across every type at once, including rejected objects -- and since
+// the lists stopped carrying those, this is the way back to one. The reason to
 // go looking for something is often that it is no longer where you expect it.
 // Results keep the chain's order, so a question comes before the hypotheses
 // under it rather than whatever order they were last touched in.
@@ -451,21 +473,22 @@ function searchHtml() {
       : '<div class="empty">一致する研究オブジェクトはありません。</div>'}`;
 }
 
+// Rejecting something is throwing it away, so the list stops carrying it. It
+// used to sit at the bottom under its own heading, which gave discarded work a
+// permanent place on a screen the researcher reads to see where the research is.
+// Nothing offers to put it back: wanting it again is a reason to say so and have
+// it made again, which is the same way back a removed relation has.
+//
+// The record is kept rather than deleted, for the agent rather than the screen.
+// It is told not to propose again what has been thrown away, and it can only be
+// told that about something it can still see.
 function objectListHtml(type) {
   const label = TYPE_LABEL[type] || type;
-  const all = (state.workspace.objects || []).filter(o => o.type === type);
-  // Objects are listed newest-touched first, and rejecting something touches it,
-  // so what the researcher just discarded took the top of the list. Rejected
-  // work goes to the bottom, still reachable, under its own heading.
-  const live = all.filter(o => o.status !== 'rejected');
-  const dropped = all.filter(o => o.status === 'rejected');
+  const live = (state.workspace.objects || []).filter(o => o.type === type && o.status !== 'rejected');
   const body = live.length
     ? `<div class="object-grid">${live.map(o => cardHtml(o)).join('')}</div>`
     : `<div class="empty">まだ${esc(label)}はありません。右側で研究について話してみてください。</div>`;
-  const rejected = dropped.length
-    ? `<section class="section"><div class="section-head"><h2>${type === 'note' ? '不要としたもの' : '却下したもの'}</h2><span class="muted">${dropped.length}件</span></div><div class="object-grid">${dropped.map(o => cardHtml(o)).join('')}</div></section>`
-    : '';
-  return `<div class="page-title"><h1>${esc(label)}</h1></div>${body}${rejected}`;
+  return `<div class="page-title"><h1>${esc(label)}</h1></div>${body}`;
 }
 
 // A decision has to be reversible. Rejecting something used to remove the only
@@ -676,22 +699,17 @@ ${fmtSize(o.asset.size_bytes)} · ${esc(o.asset.modified_at)}</div>` : ''}
 // Registering a file makes a Research Object, and one that nothing points at
 // floats off the end of the map -- which is where the first four ended up. The
 // chain allows exactly one link into an asset, measurement produces asset, so
-// the measurement is asked for here instead of being left to be found from the
-// other side afterwards. Asked for, not required: a file can be registered on
-// its own, and there is nothing to ask before the first measurement exists.
+// the measurement is worth asking about while the file is in front of the
+// researcher rather than leaving it to be found from the other side later.
+//
+// It is asked after the file is registered, not before. Asking first made the
+// press do nothing on its own: the picker opened, and anyone who read the button
+// as "register this" and walked away had registered nothing at all. That is what
+// happened to the first user -- five measurements on hand, so every press opened
+// a question, and the データ list stayed empty. The press now does what it says,
+// and the link is an offer on top of a thing that already exists.
 function measurementsOnHand() {
   return (state.workspace.objects || []).filter(o => o.type === 'measurement' && o.status !== 'rejected');
-}
-
-function registerPickerHtml(f) {
-  if (state.registering !== f.relative_path) return '';
-  return `<div class="file-link">
-    <div class="file-link-head">どの測定が生み出したデータですか</div>
-    ${measurementsOnHand().map(m => `<button class="link-pick" data-register-with="${esc(f.relative_path)}" data-measurement="${esc(m.id)}">
-      <span class="rel-plus" aria-hidden="true">＋</span><span class="type">${esc(TYPE_LABEL.measurement)}</span><span class="rel-title">${esc(m.title)}</span>
-    </button>`).join('')}
-    <button class="link-skip" data-register-with="${esc(f.relative_path)}" data-measurement="">つなげずに登録する</button>
-  </div>`;
 }
 
 // Only the day. A file's modification time is good to the second, but the
@@ -709,24 +727,53 @@ function fileRowHtml(f) {
   // says what happened to the file and offers a way to it instead.
   const register = f.asset_id
     ? `<button class="btn small" data-open-asset="${esc(f.asset_id)}" title="登録済みです">データを見る</button>`
-    : `<button class="btn small${state.registering === f.relative_path ? ' primary' : ''}" data-register-path="${esc(f.relative_path)}">データとして登録</button>`;
+    : `<button class="btn small" data-register-path="${esc(f.relative_path)}" title="研究のデータとして記録します">データとして登録</button>`;
   return `<div class="file-entry"><div class="file ${f.shared ? 'shared' : ''}">
     <div class="file-name" title="${esc(f.relative_path)}">${esc(f.relative_path)}</div>
     <div class="file-meta">${fmtSize(f.size_bytes)}</div>
     ${share}
     ${register}
-  </div>${registerPickerHtml(f)}</div>`;
+  </div></div>`;
+}
+
+// Registering used to change a label three rows down and nothing else, which
+// reads as nothing having happened. This says what happened, in the words of
+// what was pressed, offers the object it made, and -- while the answer is still
+// worth having -- asks the one question the chain leaves open about it.
+function fileNoticeHtml() {
+  const notice = state.fileNotice;
+  if (!notice) return '';
+  const done = `<div class="file-notice"><span>${esc(notice.path)} — ${notice.measurement
+    ? `「${esc(notice.measurement)}」が生み出したデータとして登録しました。`
+    : 'データとして登録しました。'}</span>
+    <button class="btn small" data-open-asset="${esc(notice.assetId)}">開く</button></div>`;
+  const measurements = measurementsOnHand();
+  if (notice.measurement || !measurements.length) return done;
+  // Same picking as a chain link in a card: the pair of types fixes the
+  // predicate, so the measurement is the whole choice.
+  return `${done}<div class="file-link">
+    <div class="file-link-head">どの測定が生み出したデータですか</div>
+    ${measurements.map(m => `<button class="link-pick" data-link-asset="${esc(notice.assetId)}" data-measurement="${esc(m.id)}">
+      <span class="rel-plus" aria-hidden="true">＋</span><span class="type">${esc(TYPE_LABEL.measurement)}</span><span class="rel-title">${esc(m.title)}</span>
+    </button>`).join('')}
+    <button class="link-skip" id="dismissFileNotice">あとにする</button>
+  </div>`;
 }
 
 function filesHtml() {
   const shared = state.files.filter(f => f.shared).length;
-  // The promise is about what the researcher has chosen, so say which files
-  // those are rather than claiming nothing is ever sent.
-  const note = shared
-    ? `本文が送られるのは、共有中の${shared}件だけです。それぞれ先頭4KBまでを抜粋して渡します。`
-    : '一覧はファイル名と基本メタデータだけです。本文は、共有したファイルに限って送られます。';
+  const registered = state.files.filter(f => f.asset_id).length;
+  // Two buttons, doing unrelated things, and only one of them had ever been
+  // explained. The promise about file contents is about what the researcher has
+  // chosen, so it says which files those are rather than claiming nothing is
+  // ever sent -- and registering, which sends nothing at all, says so too.
   return `<div class="page-title"><h1>ファイル</h1><button class="btn small" id="scanFiles">再スキャン</button></div>
-    <div class="muted page-note">${note}</div>
+    <div class="muted page-note">研究フォルダにあるファイルの一覧です。rescicleはその場で参照するだけで、移動もコピーもしません。行にあるボタンは2つあり、それぞれ別のことをします。</div>
+    <div class="muted file-legend">
+      <div><strong>中身を見せる</strong> — そのファイルの本文を、先頭4KBまで抜粋してAIに渡します。いつでも取り消せます。${shared ? `いま${shared}件を共有中です。` : '本文が送られるのは、ここで共有したファイルだけです。'}</div>
+      <div><strong>データとして登録</strong> — そのファイルを研究のデータとして記録し、測定とつなげられるようにします。本文は送られません。${registered ? `いま${registered}件が登録済みです。` : ''}</div>
+    </div>
+    ${fileNoticeHtml()}
     ${state.error ? `<div class="error">${esc(state.error)}</div>` : ''}
     ${state.files.length
       ? `<div class="files">${state.files.map(fileRowHtml).join('')}</div>`
@@ -831,7 +878,7 @@ function bind() {
   });
   document.querySelectorAll('[data-nav]').forEach(b => b.addEventListener('click', async () => {
     // Leaving the query set would show results while the nav looked switched.
-    state.currentType = b.dataset.nav; state.query = ""; state.selectedObjectId = null; state.selectedObject = null; state.linking = null; state.registering = null; state.error = null;
+    state.currentType = b.dataset.nav; state.query = ""; state.selectedObjectId = null; state.selectedObject = null; state.linking = null; state.fileNotice = null; state.error = null;
     try {
       if (state.currentType === 'files' && !state.files.length) state.files = await api.scanFiles(state.workspace.project.id);
     } catch (e) {
@@ -856,7 +903,12 @@ function bind() {
     event.stopPropagation();
     const id = b.dataset.targetId || state.selectedObject?.id;
     if (!id) return;
+    const before = (state.workspace.objects || []).find(o => o.id === id);
     await api.setObjectStatus(id, b.dataset.status);
+    // Rejecting takes the card off every screen and starts the clock on the row
+    // itself, so it is the one decision that leaves something behind. Any other
+    // decision, 戻す included, clears the offer: it is about the last one.
+    setRejectedNotice(b.dataset.status === 'rejected' ? before : null);
     await refreshWorkspace();
     if (state.selectedObject && state.selectedObject.id === id) await loadSelected(id);
     else render();
@@ -947,19 +999,15 @@ function bind() {
     }
     render();
   }));
-  document.querySelectorAll('[data-register-path]').forEach(b => b.addEventListener('click', async () => {
-    const path = b.dataset.registerPath;
-    // With no measurement to point at there is nothing to ask, so asking would
-    // only be a step to dismiss.
-    if (!measurementsOnHand().length) { await registerFile(path, null); return; }
-    state.registering = state.registering === path ? null : path;
-    state.error = null;
-    render();
-  }));
-  document.querySelectorAll('[data-register-with]').forEach(b => b.addEventListener('click', () =>
-    registerFile(b.dataset.registerWith, b.dataset.measurement || null)));
+  document.querySelectorAll('[data-register-path]').forEach(b => b.addEventListener('click', () =>
+    registerFile(b.dataset.registerPath)));
+  document.querySelectorAll('[data-link-asset]').forEach(b => b.addEventListener('click', () =>
+    linkAssetToMeasurement(b.dataset.linkAsset, b.dataset.measurement)));
+  document.getElementById('dismissFileNotice')?.addEventListener('click', () => {
+    state.fileNotice = null; render();
+  });
   document.querySelectorAll('[data-open-asset]').forEach(b => b.addEventListener('click', () => {
-    state.currentType = 'asset'; state.query = ''; state.linking = null; state.registering = null; state.error = null;
+    state.currentType = 'asset'; state.query = ''; state.linking = null; state.fileNotice = null; state.error = null;
     loadSelected(b.dataset.openAsset);
   }));
   document.getElementById('sendBtn')?.addEventListener('click', sendMessage);
@@ -1039,15 +1087,31 @@ async function loadSelected(id) {
 // chain's single edge into an asset, so there is no predicate to choose here
 // either. A refusal from the Rust side has to reach the page: the file list is
 // redrawn from the scan, not from what the button assumed happened.
-async function registerFile(relativePath, measurementId) {
+async function registerFile(relativePath) {
   state.error = null;
+  state.fileNotice = null;
   try {
     const projectId = state.workspace.project.id;
     const asset = await api.registerAsset(projectId, relativePath);
-    if (measurementId) state.workspace = await api.createRelation(projectId, measurementId, 'produces', asset.id);
-    else await refreshWorkspace();
+    await refreshWorkspace();
     state.files = await api.scanFiles(projectId);
-    state.registering = null;
+    state.fileNotice = { path: relativePath, assetId: asset.id, measurement: null };
+  } catch (e) {
+    state.error = errText(e);
+  }
+  render();
+}
+
+// The second half, when the researcher takes the offer. Registering already
+// happened, so a failure here loses the link and not the file.
+async function linkAssetToMeasurement(assetId, measurementId) {
+  state.error = null;
+  try {
+    // Read before the workspace is replaced, so the notice can name what the
+    // file was joined to rather than just that it was joined to something.
+    const measurement = measurementsOnHand().find(m => m.id === measurementId);
+    state.workspace = await api.createRelation(state.workspace.project.id, measurementId, 'produces', assetId);
+    if (state.fileNotice) state.fileNotice.measurement = measurement?.title || '測定';
   } catch (e) {
     state.error = errText(e);
   }
@@ -1057,6 +1121,20 @@ async function registerFile(relativePath, measurementId) {
 async function refreshWorkspace() {
   state.workspace = await api.openProject(state.workspace.project.id);
 }
+// Must match REJECTED_GRACE_SECS in src-tauri/src/db.rs: the offer has to go
+// before the row it points at does, or 戻す would reach something already gone.
+const REJECT_UNDO_MS = 180_000;
+let undoTimer = null;
+
+function setRejectedNotice(object) {
+  if (undoTimer) { clearTimeout(undoTimer); undoTimer = null; }
+  if (!object) { state.rejectedNotice = null; return; }
+  state.rejectedNotice = { id: object.id, title: object.title, type: object.type, until: Date.now() + REJECT_UNDO_MS };
+  // The window closing is a thing that happens on its own, so the screen has to
+  // stop offering without waiting to be visited again.
+  undoTimer = setTimeout(() => { undoTimer = null; state.rejectedNotice = null; render(); }, REJECT_UNDO_MS);
+}
+
 // Ticks the elapsed label in place. A render() every second would throw away
 // whatever the researcher has started typing for their next message.
 let thinkingTimer = null;

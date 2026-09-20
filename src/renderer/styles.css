@@ -272,6 +272,19 @@ button.root-hint:hover { background: #eeede9; color: #5f5e58; }
 /* Four controls now: name, size, share, register. */
 .file { grid-template-columns: minmax(0,1fr) auto auto auto; }
 .file.shared { border-color:#bfbeb5; background:#fbfbf8; }
+/* A registered file gets no tint of its own. Its button already says データを見る
+   instead of データとして登録, which is the state in words, and a second hue here
+   would be one that means neither 実施済み nor an error. */
+
+/* Two buttons sit on every row and they do unrelated things, so each says what
+   it does before it is pressed rather than after. */
+.file-legend { display:grid; gap:5px; margin-bottom:16px; }
+.file-legend div { font-size:11px; }
+
+
+/* What just happened to a file, said where the eye already is. The row changes
+   too, but a row that changed while it was being read is not an answer. */
+.file-notice { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:12px; padding:9px 12px; border:1px solid #cfcec7; border-radius:9px; background:#fff; font-size:12px; color:#44433e; }
 
 /* The file row and, under it, the measurement it came out of. Same picking as
    a chain link in a card: no frame until the pointer is on it, and no verb to

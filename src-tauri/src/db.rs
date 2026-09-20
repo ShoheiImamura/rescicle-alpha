@@ -20,6 +20,10 @@ pub fn now() -> String {
     iso(std::time::SystemTime::now())
 }
 
+/// How long a rejected object stays before purge_rejected() removes it. Long
+/// enough to take back a misplaced press, short enough that nothing is filed.
+pub const REJECTED_GRACE_SECS: u64 = 180;
+
 // Every row reaches the renderer as a flat object whose
 // keys are the column names, because src/renderer/app.js reads them directly.
 fn row_to_value(row: &Row<'_>) -> rusqlite::Result<Value> {
@@ -673,8 +677,38 @@ impl Db {
         )
     }
 
+    // Rejecting is throwing away, not filing, so the row goes. It does not go on
+    // the press: a decision made by mistake is noticed seconds later, and the way
+    // back has to still be there while that is true. After the grace period the
+    // researcher has said the thing is rubbish and meant it, and rubbish kept
+    // forever is what the list at the bottom of every screen used to be.
+    //
+    // Everything hanging off the object goes with it -- relations, asset row,
+    // measurement row all cascade. What it took part in stays: events.object_id
+    // carries no foreign key, so the log still says it existed and was thrown
+    // away.
+    pub fn purge_rejected(&self, project_id: &str) -> Result<usize> {
+        let cutoff = crate::files::iso(
+            std::time::SystemTime::now() - std::time::Duration::from_secs(REJECTED_GRACE_SECS),
+        );
+        self.purge_rejected_before(project_id, &cutoff)
+    }
+
+    // Split from purge_rejected() so the rule can be tested without sitting out
+    // the grace period. `updated_at` is written by now(), which is this same
+    // formatter: RFC3339 in UTC at a fixed width, so comparing the text compares
+    // the instants.
+    pub fn purge_rejected_before(&self, project_id: &str, cutoff: &str) -> Result<usize> {
+        let removed = self.conn.execute(
+            "DELETE FROM objects WHERE project_id=?1 AND status='rejected' AND updated_at < ?2",
+            params![project_id, cutoff],
+        )?;
+        Ok(removed)
+    }
+
     pub fn workspace(&self, project_id: &str) -> Result<Value> {
         let project = self.require_project(project_id)?;
+        self.purge_rejected(project_id)?;
         let objects = self.list_objects(project_id, None)?;
         let mut counts: Map<String, Value> = Map::new();
         for object in &objects {
@@ -692,6 +726,9 @@ impl Db {
     }
 
     pub fn context(&self, project_id: &str, selected_object_id: Option<&str>) -> Result<Value> {
+        // So the agent is never told about something the researcher threw away
+        // long enough ago that it is gone from their screen for good.
+        self.purge_rejected(project_id)?;
         let objects: Vec<Value> = self
             .list_objects(project_id, None)?
             .into_iter()

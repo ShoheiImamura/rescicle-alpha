@@ -513,3 +513,65 @@ fn only_shared_files_reach_the_prompt() {
     db.set_file_shared(&project_id, "open.csv", false, "researcher").unwrap();
     assert!(!prompt(&db).contains("temperature,resistance"));
 }
+
+// Rejecting is throwing away, so the object leaves the database rather than
+// being filed at the bottom of a list forever. It does not leave on the press:
+// the researcher has a few minutes to notice a misplaced one, and everything
+// hanging off it has to go with it when it does leave.
+#[test]
+fn a_rejected_object_is_kept_briefly_and_then_deleted() {
+    let tmp = TempDir::new("reject-purge");
+    let research = tmp.path().join("research");
+    std::fs::create_dir_all(&research).unwrap();
+
+    let db = Db::open(&tmp.path().join("rescicle.sqlite")).unwrap();
+    let project_id = str_of(
+        &db.create_project("reject-purge", research.to_str().unwrap()).unwrap(),
+        "id",
+    );
+    let q = db
+        .create_object(&project_id, &object("question", "Q", "researcher", "confirmed"), "researcher")
+        .unwrap();
+    let h = db
+        .create_object(&project_id, &object("hypothesis", "H", "agent", "proposed"), "agent")
+        .unwrap();
+    let hypothesis_id = str_of(&h, "id");
+    db.create_relation(
+        &project_id,
+        &RelationInput {
+            subject_id: hypothesis_id.clone(),
+            predicate: "addresses".into(),
+            object_id: str_of(&q, "id"),
+            origin: "agent".into(),
+            status: "proposed".into(),
+        },
+        "agent",
+    )
+    .unwrap();
+
+    db.update_object_status(&hypothesis_id, "rejected", "researcher").unwrap();
+    assert_eq!(
+        db.purge_rejected(&project_id).unwrap(),
+        0,
+        "a decision made a moment ago can still be taken back"
+    );
+    assert!(db.get_object(&hypothesis_id).unwrap().is_some());
+
+    // Once the window has passed. A cutoff in the future stands in for waiting.
+    let removed = db
+        .purge_rejected_before(&project_id, "9999-01-01T00:00:00.000Z")
+        .unwrap();
+    assert_eq!(removed, 1);
+    assert!(
+        db.get_object(&hypothesis_id).unwrap().is_none(),
+        "the rejected object is gone, not struck through"
+    );
+    assert!(
+        db.list_relations(&project_id).unwrap().is_empty(),
+        "the line into it goes with it"
+    );
+    assert!(
+        db.get_object(&str_of(&q, "id")).unwrap().is_some(),
+        "and nothing else does"
+    );
+}
