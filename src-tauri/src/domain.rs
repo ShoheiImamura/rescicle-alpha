@@ -36,6 +36,45 @@ pub struct ObjectInput {
     // it cannot stand without the expression it annotates.
     #[serde(default)]
     pub criterion_note: Option<String>,
+    // The quantities the expression is written in terms of. Option rather than a
+    // bare Vec because the response schema requires every key on every
+    // operation, so this arrives as an explicit null on the ones that have no
+    // symbols -- and serde will not read null into a Vec.
+    #[serde(default)]
+    pub symbols: Option<Vec<SymbolInput>>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct SymbolInput {
+    pub name: String,
+    #[serde(default)]
+    pub meaning: Option<String>,
+}
+
+/// Names that can be read back out of an expression: letters, digits, `_`, and
+/// the subscript dot in `p.A`. Not a grammar for the expression itself -- there
+/// is no parser and the agent is the one that knows what it wrote -- just enough
+/// that a name is a name and not a sentence that wandered into the wrong field.
+pub fn validate_symbols(symbols: &[SymbolInput]) -> Result<()> {
+    let mut seen: Vec<&str> = Vec::new();
+    for symbol in symbols {
+        let name = symbol.name.trim();
+        if name.is_empty() {
+            return err("記号に名前が要ります。");
+        }
+        if name.chars().any(char::is_whitespace) {
+            return err(format!(
+                "記号の名前に空白は使えません（受け取った値: {name}）。式の中でそのまま書ける形にしてください。"
+            ));
+        }
+        // Two rows with one name would make the binding ambiguous the moment
+        // there is one, and reading it ambiguous before that.
+        if seen.contains(&name) {
+            return err(format!("記号 {name} が二重に定義されています。"));
+        }
+        seen.push(name);
+    }
+    Ok(())
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -91,7 +130,21 @@ pub fn validate_object_input(input: &ObjectInput) -> Result<()> {
     if !criterion_note_of(input).is_empty() && criterion_of(input).is_empty() {
         return err("判定条件の補足だけを書くことはできません。先に式を書いてください。");
     }
+    // Symbols belong to the expression that uses them, so they go the same way
+    // the note does: only on a prediction, and not without one.
+    if !symbols_of(input).is_empty() && criterion_of(input).is_empty() {
+        return err("記号だけを定義することはできません。先に判定条件の式を書いてください。");
+    }
+    validate_symbols(symbols_of(input))?;
     Ok(())
+}
+
+/// The symbols as they will be stored, and an empty slice when there are none.
+pub fn symbols_of(input: &ObjectInput) -> &[SymbolInput] {
+    match &input.symbols {
+        Some(list) => list,
+        None => &[],
+    }
 }
 
 /// The criterion as it will be stored: trimmed, and empty when there is none.
@@ -151,6 +204,7 @@ mod tests {
             status: "proposed".into(),
             criterion: criterion.map(str::to_string),
             criterion_note: None,
+            symbols: None,
         }
     }
 

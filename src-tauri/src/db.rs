@@ -1,5 +1,6 @@
 use crate::domain::{
-    allowed_relation, validate_object_input, validate_relation_input, ObjectInput, RelationInput,
+    allowed_relation, validate_object_input, validate_relation_input, validate_symbols, ObjectInput,
+    RelationInput, SymbolInput,
 };
 use crate::error::{err, Error, Result};
 use crate::files::{iso, resolve};
@@ -329,6 +330,7 @@ impl Db {
                 stamp
             ],
         )?;
+        self.replace_symbols(&id, crate::domain::symbols_of(input))?;
         self.event(
             project_id,
             "object_created",
@@ -352,6 +354,7 @@ impl Db {
         object_id: &str,
         criterion: &str,
         criterion_note: &str,
+        symbols: &[SymbolInput],
         actor: &str,
     ) -> Result<Value> {
         let object = query_one(&self.conn, "SELECT * FROM objects WHERE id=?", &[&object_id])?
@@ -376,6 +379,10 @@ impl Db {
                 object_id
             ],
         )?;
+        // Replaced with the expression, not merged into it: the names in a new
+        // expression are whatever that expression says, and a symbol left behind
+        // from the old one would define something nothing refers to.
+        self.replace_symbols(object_id, symbols)?;
         self.event(
             &text(&object, "project_id"),
             "object_criterion_set",
@@ -386,6 +393,33 @@ impl Db {
         )?;
         self.get_object(object_id)?
             .ok_or_else(|| Error("object not found".into()))
+    }
+
+    // Replaced whole, like the criterion they belong to. A symbol has no life of
+    // its own to preserve across a rewrite: if the expression changed, the names
+    // in it are whatever the new one says.
+    fn replace_symbols(&self, object_id: &str, symbols: &[SymbolInput]) -> Result<()> {
+        validate_symbols(symbols)?;
+        self.conn
+            .execute("DELETE FROM criterion_symbols WHERE object_id=?", [object_id])?;
+        let stamp = now();
+        for symbol in symbols {
+            let meaning = symbol.meaning.as_deref().map(str::trim).filter(|m| !m.is_empty());
+            self.conn.execute(
+                "INSERT INTO criterion_symbols(id,object_id,name,meaning,created_at)
+                 VALUES(?,?,?,?,?)",
+                params![new_id("sym"), object_id, symbol.name.trim(), meaning, stamp],
+            )?;
+        }
+        Ok(())
+    }
+
+    pub fn symbols_of(&self, object_id: &str) -> Result<Vec<Value>> {
+        query_all(
+            &self.conn,
+            "SELECT id, name, meaning FROM criterion_symbols WHERE object_id=? ORDER BY created_at, rowid",
+            &[&object_id],
+        )
     }
 
     // The remark on an object, replaced whole. There is one of them and it has no
@@ -559,22 +593,37 @@ impl Db {
     }
 
     pub fn list_objects(&self, project_id: &str, type_: Option<&str>) -> Result<Vec<Value>> {
-        match type_ {
+        let mut objects = match type_ {
             Some(t) => query_all(
                 &self.conn,
                 "SELECT o.*, m.object_id IS NOT NULL performed, m.performed_at performed_at
                  FROM objects o LEFT JOIN measurements m ON m.object_id=o.id
                  WHERE o.project_id=? AND o.type=? ORDER BY o.updated_at DESC",
                 &[&project_id, &t],
-            ),
+            )?,
             None => query_all(
                 &self.conn,
                 "SELECT o.*, m.object_id IS NOT NULL performed, m.performed_at performed_at
                  FROM objects o LEFT JOIN measurements m ON m.object_id=o.id
                  WHERE o.project_id=? ORDER BY o.updated_at DESC",
                 &[&project_id],
-            ),
+            )?,
+        };
+        // Attached here rather than at each caller, because this is the one read
+        // every list goes through -- the workspace, the type screens, the agent's
+        // context. Adding it to get_object alone was why a card opened on the map
+        // showed its symbols and the same card in the 予測 list did not.
+        for object in &mut objects {
+            if text(object, "type") != "prediction" {
+                continue;
+            }
+            let symbols = self.symbols_of(&text(object, "id"))?;
+            object
+                .as_object_mut()
+                .expect("row is an object")
+                .insert("symbols".into(), json!(symbols));
         }
+        Ok(objects)
     }
 
     pub fn get_object(&self, object_id: &str) -> Result<Option<Value>> {
@@ -597,9 +646,13 @@ impl Db {
              WHERE r.object_id=? ORDER BY r.created_at",
             &[&object_id],
         )?;
+        let symbols = self.symbols_of(object_id)?;
         let map = object.as_object_mut().expect("row is an object");
         map.insert("outgoing".into(), json!(outgoing));
         map.insert("incoming".into(), json!(incoming));
+        // Empty for everything that is not a prediction, which is the same thing
+        // as saying only a prediction has a criterion to write them in terms of.
+        map.insert("symbols".into(), json!(symbols));
         if map.get("type").and_then(Value::as_str) == Some("measurement") {
             let row = query_one(
                 &self.conn,
@@ -771,6 +824,7 @@ impl Db {
                 // Only a prediction has these.
                 criterion: None,
                 criterion_note: None,
+                symbols: None,
             },
             origin,
         )?;
@@ -917,6 +971,11 @@ impl Db {
                     let map = row.as_object_mut().expect("row is an object");
                     map.insert("criterion".into(), o.get("criterion").cloned().unwrap_or(Value::Null));
                     map.insert("criterion_note".into(), o.get("criterion_note").cloned().unwrap_or(Value::Null));
+                    // list_objects put these on the row. Sent so the agent can
+                    // see which quantities are already named -- reusing
+                    // p_engraft across two predictions is what makes them about
+                    // the same thing rather than two lookalikes.
+                    map.insert("symbols".into(), o.get("symbols").cloned().unwrap_or(json!([])));
                 }
                 // The agent is told to record whether a measurement has been run
                 // and to keep it out of the body. Without it here it could write

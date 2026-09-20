@@ -807,7 +807,7 @@ function searchHtml() {
 const TYPE_NOTE = {
   question: '調べたいこと。仮説はここに答えようとします。',
   hypothesis: '<strong>なぜ</strong>そうなるのか。機構や原因の主張で、それ自体は直接見えません。「〜が左右している」だけだと、そこから出る予測は「差が出る」しか言えません。何を通して、どちら向きに効くのかまで書けると、予測が具体的になります。',
-  prediction: 'その仮説が本当なら、<strong>何が見えるはずか</strong>。どれも<strong>判定条件</strong>を持ちます — 何と比べて、どうなったら外れるのか。向き・順序・比べる大きさのどれかです。「差が出る」だけでは、比べる先が無いので判定できません。<strong>仮説を見ずに予測だけ読んで、何を測ればいいか分かるか</strong>が目安です。',
+  prediction: 'その仮説が本当なら、<strong>何が見えるはずか</strong>。どれも<strong>判定条件</strong>を持ちます — 何と比べて、どうなったら外れるのか。向き・順序・比べる大きさのどれかです。「差が出る」だけでは、比べる先が無いので判定できません。<strong>仮説を見ずに予測だけ読んで、何を測ればいいか分かるか</strong>が目安です。統計の演算はギリシャ文字ではなく名前で書きます（<code>spearman(a, b)</code>）— <code>ρ</code> は引けませんし、Pearsonなのか Spearman なのかを隠してしまうので。',
   measurement: 'その予測を確かめるために実際にやること。'
 };
 
@@ -892,9 +892,17 @@ function criterionHtml(o) {
   // has since split -- so there is nothing to parse here and no convention for
   // anyone to break by writing two lines of prose.
   const note = (o.criterion_note ?? '').trim();
+  // The quantities the expression is written in terms of. Listed rather than
+  // left inside the prose because they are what the research has to end up
+  // measuring, and because a name used by two predictions means the two are
+  // about the same thing -- which is only visible if the names are a list.
+  const symbols = (o.symbols || []).filter(s => (s.name ?? '').trim());
   return `<div class="card-criterion">
     <div class="card-criterion-row"><span class="card-criterion-label">判定</span><code>${esc(value)}</code></div>
     ${note ? `<div class="card-criterion-row"><span class="card-criterion-label">補足</span><span>${esc(note)}</span></div>` : ''}
+    ${symbols.length ? `<div class="card-criterion-row"><span class="card-criterion-label">記号</span><span class="symbols">${
+      symbols.map(s => `<span class="symbol"><code>${esc(s.name.trim())}</code>${
+        (s.meaning ?? '').trim() ? ` ${esc(s.meaning.trim())}` : ''}</span>`).join('')}</span></div>` : ''}
   </div>`;
 }
 

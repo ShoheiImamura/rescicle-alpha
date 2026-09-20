@@ -42,6 +42,7 @@ fn object(type_: &str, title: &str, origin: &str, status: &str) -> ObjectInput {
         // with one, so the helper gives each what it is allowed to have.
         criterion: (type_ == "prediction").then(|| "p_a > p_b".to_string()),
         criterion_note: None,
+        symbols: None,
     }
 }
 
@@ -63,6 +64,7 @@ fn op(op: &str) -> Operation {
         note: None,
         criterion: None,
         criterion_note: None,
+        symbols: None,
     }
 }
 

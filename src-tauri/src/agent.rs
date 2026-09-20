@@ -214,6 +214,8 @@ pub struct Operation {
     pub criterion: Option<String>,
     #[serde(default)]
     pub criterion_note: Option<String>,
+    #[serde(default)]
+    pub symbols: Option<Vec<crate::domain::SymbolInput>>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -274,6 +276,7 @@ pub fn apply_operations(
                         status: op.status.clone().unwrap_or_else(|| "proposed".into()),
                         criterion: op.criterion.clone(),
                         criterion_note: op.criterion_note.clone(),
+                        symbols: op.symbols.clone(),
                     },
                     actor_for(op.origin.as_ref()),
                 )
@@ -295,6 +298,7 @@ pub fn apply_operations(
                     &id,
                     op.criterion.as_deref().unwrap_or(""),
                     op.criterion_note.as_deref().unwrap_or(""),
+                    op.symbols.as_deref().unwrap_or(&[]),
                     "agent",
                 )
                     .map(|updated| (json!({ "ok": true, "op": op.op, "id": updated["id"] }), None))

@@ -75,6 +75,34 @@ CREATE TABLE IF NOT EXISTS measurements (
   FOREIGN KEY (object_id) REFERENCES objects(id) ON DELETE CASCADE
 );
 
+-- The quantities a prediction's criterion is written in terms of. `ρ(v_trypan,
+-- p_engraft) > 0` is about two of them, and until something says what v_trypan
+-- is, the expression is a string with names in it.
+--
+-- A table and not a column, because a criterion names several and a column
+-- holds one. It is not an object either: a symbol cannot be proposed, confirmed
+-- or rejected, and it has no existence apart from the criterion that uses it --
+-- which is the same test the note failed when it stopped being a type.
+--
+-- Nothing here binds a symbol to data yet. That is the next step and it is what
+-- this table is shaped for: an asset and a column name join a row, and the
+-- expression becomes something that can actually be evaluated. Until then this
+-- records what a prediction depends on, which is enough to see that two
+-- predictions are about the same quantity.
+CREATE TABLE IF NOT EXISTS criterion_symbols (
+  id TEXT PRIMARY KEY,
+  object_id TEXT NOT NULL,
+  -- As written in the expression: v_trypan, p_A, sigma_within.
+  name TEXT NOT NULL,
+  -- What it is, in the researcher's words.
+  meaning TEXT,
+  created_at TEXT NOT NULL,
+  FOREIGN KEY (object_id) REFERENCES objects(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_criterion_symbols_object
+ON criterion_symbols(object_id);
+
 CREATE TABLE IF NOT EXISTS messages (
   id TEXT PRIMARY KEY,
   project_id TEXT NOT NULL,

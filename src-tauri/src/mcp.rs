@@ -116,6 +116,10 @@ pub fn call_tool(db: &Db, data_dir: &Path, name: &str, args: &Value) -> Result<V
                     .get("criterionNote")
                     .and_then(Value::as_str)
                     .map(str::to_string),
+                // The MCP surface stays narrow: Claude Code writes the expression
+                // and its note, and the symbols are declared from the
+                // conversation side, where the criterion is being reasoned about.
+                symbols: None,
             },
             if arg_str(args, "origin") == "researcher" {
                 "researcher-via-mcp"
