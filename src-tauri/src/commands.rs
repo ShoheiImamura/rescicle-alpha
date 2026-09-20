@@ -55,18 +55,33 @@ pub async fn agent_refresh(state: State<'_, AppState>) -> Result<Value> {
     Ok(json!({ "backend": "claude", "claude": state.agent.status().await }))
 }
 
+// The saved id can go stale -- the database replaced, the project gone from
+// underneath. It used to be dropped and nothing put in its place, which left
+// onboarding as the only screen the app could show while the researcher's work
+// sat in the database with no way to reach it: there is no project list in the
+// UI to pick from. Fall back to the most recently opened project instead;
+// list_projects() is ordered by last_opened_at DESC, so the front of it is the
+// one they were last in.
+fn pick_current(saved: Option<&str>, projects: &[Value]) -> Option<String> {
+    let id_of = |p: &Value| p.get("id").and_then(Value::as_str).map(str::to_string);
+    match saved {
+        Some(id) if projects.iter().any(|p| id_of(p).as_deref() == Some(id)) => Some(id.to_string()),
+        _ => projects.first().and_then(id_of),
+    }
+}
+
 #[tauri::command]
 pub async fn app_bootstrap(state: State<'_, AppState>) -> Result<Value> {
     let (projects, current, workspace) = {
         let db = lock(&state.db)?;
         let mut settings = lock(&state.settings)?;
         let projects = db.list_projects()?;
-        if let Some(id) = settings.current_project_id.clone() {
-            if db.get_project(&id)?.is_none() {
-                settings.current_project_id = None;
-            }
+        let current = pick_current(settings.current_project_id.as_deref(), &projects);
+        // Written back, so the fallback happens once rather than on every launch.
+        if settings.current_project_id != current {
+            settings.current_project_id = current.clone();
+            state.save_settings(&settings)?;
         }
-        let current = settings.current_project_id.clone();
         let workspace = match &current {
             Some(id) => db.workspace(id)?,
             None => Value::Null,
@@ -384,4 +399,37 @@ pub fn init_state(app: &AppHandle) -> Result<AppState> {
         agent: ClaudeAgent::new(&crate::settings::agent_workspace(&data_dir))?,
         data_dir,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::pick_current;
+    use serde_json::{json, Value};
+
+    fn listed(ids: &[&str]) -> Vec<Value> {
+        ids.iter().map(|id| json!({ "id": id })).collect()
+    }
+
+    #[test]
+    fn keeps_the_saved_project_while_it_is_still_there() {
+        let projects = listed(&["proj_b", "proj_a"]);
+        assert_eq!(pick_current(Some("proj_a"), &projects).as_deref(), Some("proj_a"));
+    }
+
+    // The one that stranded a researcher on the onboarding screen with their
+    // work still in the database and no way to open it.
+    #[test]
+    fn falls_back_to_the_most_recently_opened_one() {
+        let projects = listed(&["proj_b", "proj_a"]);
+        assert_eq!(pick_current(Some("proj_gone"), &projects).as_deref(), Some("proj_b"));
+        assert_eq!(pick_current(None, &projects).as_deref(), Some("proj_b"));
+    }
+
+    // Before the first project there is nothing to fall back to, and onboarding
+    // is the right screen.
+    #[test]
+    fn has_nothing_to_open_before_the_first_project() {
+        assert_eq!(pick_current(Some("proj_gone"), &[]), None);
+        assert_eq!(pick_current(None, &[]), None);
+    }
 }
