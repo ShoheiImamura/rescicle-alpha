@@ -448,10 +448,10 @@ fn setup_command() -> String {
 // session belonging to a project that no longer exists would only be handed to
 // a turn that has nothing to do with it.
 #[tauri::command]
-pub fn data_reset(state: State<'_, AppState>) -> Result<Value> {
+pub fn record_clear(state: State<'_, AppState>) -> Result<Value> {
     let removed = {
         let db = lock(&state.db)?;
-        db.reset_all()?
+        db.clear_record()?
     };
     let mut settings = lock(&state.settings)?;
     settings.current_project_id = None;

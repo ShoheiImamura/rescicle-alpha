@@ -43,7 +43,7 @@ window.rescicle = {
   // Fires repeatedly while a turn runs, each time with the whole reply so far.
   onReply: handler =>
     window.__TAURI__.event.listen('agent:reply', event => handler(event.payload)),
-  resetData: () => call('data_reset'),
+  clearRecord: () => call('record_clear'),
   claudeSetupInfo: () => call('claude_setup_info'),
   claudeMcpStatus: () => call('claude_mcp_status'),
   claudeMcpRegister: () => call('claude_mcp_register'),

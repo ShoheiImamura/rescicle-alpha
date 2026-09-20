@@ -781,7 +781,7 @@ impl Db {
     // removed with it, so one delete empties the database -- and the research
     // folders are not touched, because rescicle never had anything in them:
     // what goes is the record it kept about them.
-    pub fn reset_all(&self) -> Result<usize> {
+    pub fn clear_record(&self) -> Result<usize> {
         Ok(self.conn.execute("DELETE FROM projects", [])?)
     }
 

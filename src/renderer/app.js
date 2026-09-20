@@ -51,7 +51,7 @@ const MAP = { W: 168, H: 62, COL_GAP: 28, ROW_GAP: 14, HEAD: 26, PAD: 11, LINE: 
 // Which screen lists a type. Only assets differ from their own name: a
 // registered file and the file it points at are one thing to the researcher, so
 // they are listed together and the pair has one place in the nav.
-const LIST_SCREEN = { asset: 'files' };
+const LIST_SCREEN = { asset: 'data-files' };
 const screenFor = (type) => LIST_SCREEN[type] || type;
 
 const PREDICATE_LABEL = {
@@ -61,7 +61,10 @@ const PREDICATE_LABEL = {
 let state = {
   bootstrap: null,
   workspace: null,
-  currentType: 'overview',
+  // Which screen the centre column is showing. It held a type once, with
+  // 'map' and 'data-files' sitting in it pretending to be types, which is why
+  // screenFor() had to exist to translate one back.
+  currentScreen: 'map',
   // Non-empty replaces the centre column with results across every type.
   query: '',
   selectedObjectId: null,
@@ -101,7 +104,7 @@ let state = {
   mcpBusy: false,
   mcpNotice: null,
   // True between pressing すべて消す and answering the confirmation.
-  resetting: false,
+  clearing: false,
   renaming: false,
   renameDraft: null,
   rootNotice: null,
@@ -127,7 +130,7 @@ let composing = false;
 
 function closeModal() {
   state.modal = null;
-  state.resetting = false;
+  state.clearing = false;
   state.error = null;
   render();
 }
@@ -314,12 +317,12 @@ function sidebarHtml() {
   // counting the データ, and read as counting the folder. Both counts are on the
   // screen itself, on the headings they belong to.
   const nav = [
-    ['overview', 'マップ', ''],
+    ['map', 'マップ', ''],
     ...Object.entries(TYPE_LABEL).map(([k, label]) =>
-      k === 'asset' ? ['files', 'データ・ファイル', ''] : [k, label, counts[k] || 0]),
+      k === 'asset' ? ['data-files', 'データ・ファイル', ''] : [k, label, counts[k] || 0]),
   ];
   return `<div class="search-box"><input id="searchInput" class="input" type="search" placeholder="検索（Ctrl+F）" value="${esc(state.query)}"></div>
-    <div class="nav-title">研究オブジェクト</div>${nav.map(([id,label,count]) => `<button class="nav-btn ${state.currentType===id?'active':''}" data-nav="${id}"><span>${esc(label)}</span><span class="count">${count}</span></button>`).join('')}`;
+    <div class="nav-title">研究オブジェクト</div>${nav.map(([id,label,count]) => `<button class="nav-btn ${state.currentScreen===id?'active':''}" data-nav="${id}"><span>${esc(label)}</span><span class="count">${count}</span></button>`).join('')}`;
 }
 
 // The two screens that are not cards and prose: the map, which is as wide as
@@ -328,14 +331,14 @@ function sidebarHtml() {
 // like every other list.
 function wideScreen() {
   if (state.query.trim()) return false;
-  return state.currentType === 'overview' || state.currentType === 'files';
+  return state.currentScreen === 'map' || state.currentScreen === 'data-files';
 }
 
 function contentHtml() {
   if (state.query.trim()) return searchHtml();
-  if (state.currentType === 'overview') return overviewHtml();
-  if (state.currentType === 'files') return filesHtml();
-  return objectListHtml(state.currentType);
+  if (state.currentScreen === 'map') return mapHtml();
+  if (state.currentScreen === 'data-files') return dataFilesHtml();
+  return objectListHtml(state.currentScreen);
 }
 
 function noticeHtml() {
@@ -382,11 +385,11 @@ function projectTitleHtml() {
 // allowed_relation() permits, so they were listed underneath it, but a section
 // whose reason to exist is "the picture above cannot show these" earns its space
 // on the page it belongs to instead: the sidebar already has one.
-function overviewHtml() {
+function mapHtml() {
   const g = buildMap(state.workspace.objects || [], state.workspace.relations || []);
   return `<div class="page-title"><h1>${esc(state.workspace.project.name)}</h1></div>
     <div class="muted page-note">問い → 仮説 → 予測 → 測定 → データ のつながりです。右側のAIと話すと、ここが育っていきます。</div>
-    ${mapHtml(g)}
+    ${mapFigureHtml(g)}
     ${state.selectedObject && CHAIN.includes(state.selectedObject.type)
       // Sticks to the bottom of the column while the map is taller than the
       // viewport. Sitting in the flow under the map meant that with twenty
@@ -427,7 +430,7 @@ function buildMap(objects, relations) {
   // `addresses` runs hypothesis -> question, the opposite way round to every
   // other predicate, so an edge cannot be read as "subject is on the left".
   // Orient each one by the column its ends land in instead. Both the alignment
-  // below and the curves in mapHtml() need the left-hand end to really be on
+  // below and the curves in mapFigureHtml() need the left-hand end to really be on
   // the left; without this a hypothesis had no anchor at all and its edge was
   // drawn backwards across the question column.
   const edges = (relations || [])
@@ -501,7 +504,7 @@ function buildMap(objects, relations) {
   };
 }
 
-function mapHtml(g) {
+function mapFigureHtml(g) {
   if (!g.count) return '<div class="empty">AIとの会話から少しずつ増えていきます。</div>';
   const edges = g.edges.map(r => {
     // from/to are the edge oriented by column, not subject and object: see
@@ -859,7 +862,7 @@ function fileNoticeHtml() {
 // Registered first. A research folder holds hundreds of files and a handful of
 // them are the data, so a single flat list would lose the research to the noise
 // of everything sitting next to it.
-function filesHtml() {
+function dataFilesHtml() {
   const assets = new Map(
     (state.workspace.objects || [])
       .filter(o => o.type === 'asset' && o.status !== 'rejected')
@@ -1036,17 +1039,17 @@ function folderSectionHtml() {
 // that list. It clears the research, the objects, the links and the whole
 // conversation. The most dangerous button in the app was the one whose name
 // could be misread as the smallest.
-function resetSectionHtml() {
-  if (state.resetting) {
+function recordSectionHtml() {
+  if (state.clearing) {
     return `<div class="settings-section"><h3>rescicleの記録</h3>
       <div class="error">研究・オブジェクト・つながり・会話をすべて削除します。取り消せません。</div>
       <div class="muted settings-note">研究フォルダのファイルには触れません。消えるのは、rescicleが持っている記録だけです。</div>
-      <div class="actions"><button class="btn danger small" id="resetConfirm">消す</button><button class="btn small" id="resetCancel">やめる</button></div>
+      <div class="actions"><button class="btn danger small" id="clearConfirm">消す</button><button class="btn small" id="clearCancel">やめる</button></div>
     </div>`;
   }
   return `<div class="settings-section"><h3>rescicleの記録</h3>
     <div class="muted settings-note">研究・オブジェクト・つながり・会話。消すと最初の画面に戻ります。研究フォルダのファイルには触れません。</div>
-    <button class="btn small settings-action" id="resetStart">すべて消す</button>
+    <button class="btn small settings-action" id="clearStart">すべて消す</button>
   </div>`;
 }
 
@@ -1056,7 +1059,7 @@ function settingsModalHtml() {
     ${folderSectionHtml()}
     ${claudeSectionHtml(agent)}
     ${mcpSectionHtml(agent)}
-    ${resetSectionHtml()}
+    ${recordSectionHtml()}
     ${state.error ? `<div class="error">${esc(state.error)}</div>`:''}
     <div class="modal-actions"><button class="btn" id="closeModal">閉じる</button></div></div></div>`;
 }
@@ -1078,9 +1081,9 @@ function bind() {
   });
   document.querySelectorAll('[data-nav]').forEach(b => b.addEventListener('click', async () => {
     // Leaving the query set would show results while the nav looked switched.
-    state.currentType = b.dataset.nav; state.query = ""; state.selectedObjectId = null; state.selectedObject = null; state.linking = null; state.fileNotice = null; state.error = null;
+    state.currentScreen = b.dataset.nav; state.query = ""; state.selectedObjectId = null; state.selectedObject = null; state.linking = null; state.fileNotice = null; state.error = null;
     try {
-      if (state.currentType === 'files' && !state.files.length) state.files = await api.scanFiles(state.workspace.project.id);
+      if (state.currentScreen === 'data-files' && !state.files.length) state.files = await api.scanFiles(state.workspace.project.id);
     } catch (e) {
       // A throw here used to skip the redraw entirely, so a failing scan made
       // the sidebar look dead: the click had already moved the state, and
@@ -1096,7 +1099,7 @@ function bind() {
     if (id === state.selectedObjectId) { state.selectedObjectId = null; state.selectedObject = null; render(); return; }
     // A relation can point at another type, which the current list would not show.
     const screen = el.dataset.objectType && screenFor(el.dataset.objectType);
-    if (screen && state.currentType !== 'overview' && state.currentType !== screen) state.currentType = screen;
+    if (screen && state.currentScreen !== 'map' && state.currentScreen !== screen) state.currentScreen = screen;
     loadSelected(id);
   }));
   document.querySelectorAll('[data-status]').forEach(b => b.addEventListener('click', async (event) => {
@@ -1197,7 +1200,7 @@ function bind() {
     state.fileNotice = null; render();
   });
   document.querySelectorAll('[data-open-asset]').forEach(b => b.addEventListener('click', () => {
-    state.currentType = 'files'; state.query = ''; state.linking = null; state.fileNotice = null; state.error = null;
+    state.currentScreen = 'data-files'; state.query = ''; state.linking = null; state.fileNotice = null; state.error = null;
     loadSelected(b.dataset.openAsset);
   }));
   document.getElementById('sendBtn')?.addEventListener('click', sendMessage);
@@ -1240,9 +1243,9 @@ function bind() {
     box.setSelectionRange(box.value.length, box.value.length);
   });
   document.getElementById('changeRootHere')?.addEventListener('click', changeProjectRoot);
-  document.getElementById('resetStart')?.addEventListener('click', () => { state.resetting = true; state.error = null; render(); });
-  document.getElementById('resetCancel')?.addEventListener('click', () => { state.resetting = false; render(); });
-  document.getElementById('resetConfirm')?.addEventListener('click', resetData);
+  document.getElementById('clearStart')?.addEventListener('click', () => { state.clearing = true; state.error = null; render(); });
+  document.getElementById('clearCancel')?.addEventListener('click', () => { state.clearing = false; render(); });
+  document.getElementById('clearConfirm')?.addEventListener('click', clearRecord);
   document.getElementById('registerMcp')?.addEventListener('click', registerMcp);
   document.getElementById('copyClaudeSetup')?.addEventListener('click', copyClaudeSetup);
   const messages = document.getElementById('messages'); if (messages) messages.scrollTop = messages.scrollHeight;
@@ -1281,10 +1284,10 @@ async function changeProjectRoot() {
   // The notice belongs to the screen behind the settings, and it is the whole
   // answer to what the change did, so the modal gets out of its way.
   state.modal = null;
-  state.resetting = false;
+  state.clearing = false;
   // Standing on the list the new folder fills, an empty scan would read as an
   // empty folder rather than as one nobody has looked in yet.
-  if (state.currentType === 'files' && state.workspace) {
+  if (state.currentScreen === 'data-files' && state.workspace) {
     try { state.files = await api.scanFiles(state.workspace.project.id); } catch { /* the notice already says why */ }
   }
   render();
@@ -1424,16 +1427,16 @@ async function refreshAgent() {
 // Back to a first run without restarting: bootstrap answers from an empty
 // database, and everything the screen was holding about a project that no longer
 // exists is dropped with it.
-async function resetData() {
+async function clearRecord() {
   try {
-    await api.resetData();
+    await api.clearRecord();
     state.bootstrap = await api.bootstrap();
     state.workspace = state.bootstrap.workspace;
     Object.assign(state, {
-      modal: null, resetting: false, onboardingText: '', connectOffer: false,
+      modal: null, clearing: false, onboardingText: '', connectOffer: false,
       files: [], selectedObjectId: null, selectedObject: null, linking: null,
       fileNotice: null, rejectedNotice: null, rootNotice: null,
-      currentType: 'overview', query: '', draft: '', error: null,
+      currentScreen: 'map', query: '', draft: '', error: null,
     });
     setRejectedNotice(null);
   } catch (e) { state.error = errText(e); }

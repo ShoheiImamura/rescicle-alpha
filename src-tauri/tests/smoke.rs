@@ -589,7 +589,7 @@ fn a_rejected_object_is_kept_briefly_and_then_deleted() {
 // Resetting is for starting the next session from nothing: everything rescicle
 // recorded goes, and the research folder it was recording about does not.
 #[test]
-fn a_reset_empties_the_record_and_leaves_the_folder_alone() {
+fn clearing_the_record_empties_it_and_leaves_the_folder_alone() {
     let tmp = TempDir::new("reset");
     let research = tmp.path().join("research");
     std::fs::create_dir_all(&research).unwrap();
@@ -621,7 +621,7 @@ fn a_reset_empties_the_record_and_leaves_the_folder_alone() {
     .unwrap();
     db.register_asset(&project_id, &data, "researcher").unwrap();
 
-    assert_eq!(db.reset_all().unwrap(), 1);
+    assert_eq!(db.clear_record().unwrap(), 1);
     assert!(db.list_projects().unwrap().is_empty());
     assert!(
         db.get_object(&str_of(&q, "id")).unwrap().is_none(),
@@ -727,7 +727,7 @@ fn nothing_rescicle_does_writes_to_the_research_folder() {
     db.workspace(&project_id).unwrap();
     db.set_project_root(&project_id, research.to_str().unwrap(), "researcher")
         .unwrap();
-    db.reset_all().unwrap();
+    db.clear_record().unwrap();
 
     assert_eq!(
         before,
