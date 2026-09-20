@@ -331,7 +331,22 @@ impl ClaudeAgent {
     }
 
     // --strict-mcp-config keeps rescicle's own MCP server from being loaded back into
-    // this child process, and an empty --allowedTools keeps the turn to plain reasoning.
+    // this child process. --allowedTools names the two web tools and nothing else: a
+    // research copilot that cannot look up a compound or open the paper it just found
+    // is missing the obvious half of the job, and the list being exact is what keeps
+    // the rest shut. Read, Bash, Edit and Glob are all absent, so the research folder
+    // is still reachable only through read_files, which rescicle performs and logs.
+    //
+    // Two things go out that did not before. The queries and URLs are written by the
+    // model, which has the conversation and the object summaries in front of it, so a
+    // search can carry the researcher's own wording to a search engine -- the folder
+    // stays shut, the thinking does not. And what WebFetch brings back is text from a
+    // page nobody vetted, arriving in the same context as the instructions; a hostile
+    // page can ask for anything. What it can get is an operation, and every operation
+    // is a proposal the researcher decides on, which is the same standing the agent
+    // has had all along.
+    //
+    // The test below pins the list, so nothing joins it by accident.
     fn turn_args(session_id: &str, is_new: bool) -> Vec<String> {
         [
             "-p",
@@ -346,7 +361,7 @@ impl ClaudeAgent {
             "--system-prompt",
             &system_prompt(),
             "--allowedTools",
-            "",
+            "WebSearch,WebFetch",
             "--strict-mcp-config",
             if is_new { "--session-id" } else { "--resume" },
             session_id,
@@ -481,11 +496,22 @@ mod tests {
             index("--strict-mcp-config").is_some(),
             "rescicle's own MCP server must not load back into the child"
         );
+        // Exact, not "contains WebSearch". The value of this flag is the whole of
+        // what keeps the local machine out of the turn, so the assertion has to fail
+        // on anything joining the list as much as on WebSearch leaving it.
         assert_eq!(
             first[index("--allowedTools").unwrap() + 1],
-            "",
-            "the chat turn must not get tools"
+            "WebSearch,WebFetch",
+            "the chat turn gets the two web tools and nothing else"
         );
+        let allowed = &first[index("--allowedTools").unwrap() + 1];
+        for reaches_the_machine in ["Read", "Write", "Edit", "Bash", "Glob", "Grep", "NotebookEdit"] {
+            assert!(
+                !allowed.contains(reaches_the_machine),
+                "{reaches_the_machine} would reach past the conversation; \
+                 the research folder is read through read_files, which rescicle performs and logs"
+            );
+        }
 
         assert!(index("--session-id").is_some(), "first turn opens a new session");
         assert!(index("--resume").is_none());
