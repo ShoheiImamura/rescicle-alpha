@@ -176,20 +176,41 @@ function wrapTitle(title, perLine = 13, maxLines = 2) {
 function buildMap(objects, relations) {
   const alive = objects.filter(o => o.status !== 'rejected' && CHAIN.includes(o.type));
   const byId = new Map(alive.map(o => [o.id, o]));
-  const edges = (relations || []).filter(r => byId.has(r.subject_id) && byId.has(r.object_id));
-  const parents = new Map();
+  const rank = new Map(CHAIN.map((type, i) => [type, i]));
+
+  // `addresses` runs hypothesis -> question, the opposite way round to every
+  // other predicate, so an edge cannot be read as "subject is on the left".
+  // Orient each one by the column its ends land in instead. Both the alignment
+  // below and the curves in mapHtml() need the left-hand end to really be on
+  // the left; without this a hypothesis had no anchor at all and its edge was
+  // drawn backwards across the question column.
+  const edges = (relations || [])
+    .filter(r => byId.has(r.subject_id) && byId.has(r.object_id))
+    .map(r => {
+      const behind = rank.get(byId.get(r.object_id).type) < rank.get(byId.get(r.subject_id).type);
+      return {
+        ...r,
+        from: behind ? r.object_id : r.subject_id,
+        to: behind ? r.subject_id : r.object_id
+      };
+    });
+
+  const anchors = new Map();
   for (const r of edges) {
-    if (!parents.has(r.object_id)) parents.set(r.object_id, []);
-    parents.get(r.object_id).push(r.subject_id);
+    // Same column: neither end can position the other.
+    if (rank.get(byId.get(r.from).type) === rank.get(byId.get(r.to).type)) continue;
+    if (!anchors.has(r.to)) anchors.set(r.to, []);
+    anchors.get(r.to).push(r.from);
   }
   const cols = CHAIN.map(type => alive.filter(o => o.type === type)).filter(col => col.length);
   const pos = new Map();
-  // Left to right, so a node's parents already have a y when it is placed: aim for
-  // the average of them, then push down far enough not to overlap the row above.
+  // Left to right, so a node's anchors already have a y when it is placed: aim
+  // for the average of them, then push down far enough not to overlap the row
+  // above.
   cols.forEach((col, c) => {
     const x = c * (MAP.W + MAP.COL_GAP);
     const wanted = col.map(o => {
-      const ys = (parents.get(o.id) || []).map(id => pos.get(id)).filter(Boolean).map(q => q.y);
+      const ys = (anchors.get(o.id) || []).map(id => pos.get(id)).filter(Boolean).map(q => q.y);
       return { o, desired: ys.length ? ys.reduce((a, b) => a + b, 0) / ys.length : Infinity };
     }).sort((a, b) => a.desired - b.desired);
     let next = MAP.HEAD;
@@ -199,6 +220,31 @@ function buildMap(objects, relations) {
       next = y + MAP.H + MAP.ROW_GAP;
     }
   });
+
+  // The forward pass can only push a node down to meet things already placed, so
+  // the first column stays packed at the top while the blocks it feeds run far
+  // below it: a question with twelve hypotheses left the next question 800px
+  // above its own. Walk back leftwards and let each node drop to the block it
+  // feeds, keeping the column's order and spacing.
+  const feeds = new Map();
+  for (const [to, froms] of anchors) {
+    for (const from of froms) {
+      if (!feeds.has(from)) feeds.set(from, []);
+      feeds.get(from).push(to);
+    }
+  }
+  for (let c = cols.length - 2; c >= 0; c--) {
+    const placed = cols[c]
+      .map(o => pos.get(o.id))
+      .sort((a, b) => a.y - b.y);
+    let next = MAP.HEAD;
+    for (const node of placed) {
+      const ys = (feeds.get(node.o.id) || []).map(id => pos.get(id)).filter(Boolean).map(q => q.y);
+      const desired = ys.length ? Math.min(...ys) : node.y;
+      node.y = Math.max(next, desired);
+      next = node.y + MAP.H + MAP.ROW_GAP;
+    }
+  }
   const ys = [...pos.values()].map(q => q.y + MAP.H);
   return {
     pos, edges, cols,
@@ -212,7 +258,10 @@ function mapHtml() {
   const g = buildMap(state.workspace.objects || [], state.workspace.relations || []);
   if (!g.count) return '<div class="empty">AIとの会話から少しずつ増えていきます。</div>';
   const edges = g.edges.map(r => {
-    const a = g.pos.get(r.subject_id), b = g.pos.get(r.object_id);
+    // from/to are the edge oriented by column, not subject and object: see
+    // buildMap. Drawing it by subject would send an `addresses` curve back
+    // across the question column from the right.
+    const a = g.pos.get(r.from), b = g.pos.get(r.to);
     const x1 = a.x + MAP.W, y1 = a.y + MAP.H / 2, x2 = b.x, y2 = b.y + MAP.H / 2;
     const mid = (x1 + x2) / 2;
     return `<path class="map-edge ${r.status === 'proposed' ? 'proposed' : ''}" d="M${x1} ${y1} C${mid} ${y1} ${mid} ${y2} ${x2} ${y2}"></path>`;
