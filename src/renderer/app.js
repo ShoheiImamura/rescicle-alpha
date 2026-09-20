@@ -12,6 +12,11 @@ const TYPE_LABEL = {
   note: 'メモ'
 };
 const STATUS_LABEL = { proposed: '提案中', confirmed: '確定', rejected: '却下' };
+// A note is something written down, not a claim about the world. The three
+// states are the same underneath, but confirming or rejecting a reminder to
+// redo some wiring is not what those words mean.
+const NOTE_STATUS_LABEL = { proposed: '未整理', confirmed: '残す', rejected: '不要' };
+const statusLabel = o => (o.type === 'note' ? NOTE_STATUS_LABEL : STATUS_LABEL)[o.status] || o.status;
 const ORIGIN_LABEL = { researcher: '研究者', agent: 'AI提案', system: 'システム', instrument: '測定機器', imported: 'インポート' };
 // allowed_relation() in src-tauri/src/domain.rs fixes the chain question ->
 // hypothesis -> prediction -> measurement -> asset, so the map is a layered DAG:
@@ -213,8 +218,9 @@ function projectTitleHtml() {
 
 function overviewHtml() {
   const objects = state.workspace.objects || [];
-  // Notes sit outside the chain that allowed_relation() permits, so they are never
-  // drawn on the map. List them under it rather than letting them disappear.
+  // Notes sit outside the chain that allowed_relation() permits, so the map has
+  // nowhere to draw them. Listed under it by what they are rather than by the
+  // reason they are missing from the picture above.
   const offMap = objects.filter(o => o.status !== 'rejected' && !CHAIN.includes(o.type));
   return `<div class="page-title"><h1>${esc(state.workspace.project.name)}</h1></div>
     <div class="muted page-note">問い → 仮説 → 予測 → 測定 → データ のつながりです。右側のAIと話すと、ここが育っていきます。</div>
@@ -226,7 +232,7 @@ function overviewHtml() {
       // clicking a node looked like it had done nothing at all.
       ? `<div class="map-detail">${cardHtml(state.selectedObject, { pinned: true })}</div>`
       : ''}
-    ${offMap.length ? `<section class="section"><div class="section-head"><h2>マップに載らないもの</h2></div><div class="object-grid">${offMap.map(cardHtml).join('')}</div></section>` : ''}`;
+    ${offMap.length ? `<section class="section"><div class="section-head"><h2>メモ</h2><span class="muted">連鎖には載りません</span></div><div class="object-grid">${offMap.map(cardHtml).join('')}</div></section>` : ''}`;
 }
 
 // Titles are drawn as SVG <text>, which does not wrap. Break on a character count
@@ -381,7 +387,7 @@ function objectListHtml(type) {
     ? `<div class="object-grid">${live.map(o => cardHtml(o)).join('')}</div>`
     : `<div class="empty">まだ${esc(label)}はありません。右側で研究について話してみてください。</div>`;
   const rejected = dropped.length
-    ? `<section class="section"><div class="section-head"><h2>却下したもの</h2><span class="muted">${dropped.length}件</span></div><div class="object-grid">${dropped.map(o => cardHtml(o)).join('')}</div></section>`
+    ? `<section class="section"><div class="section-head"><h2>${type === 'note' ? '不要としたもの' : '却下したもの'}</h2><span class="muted">${dropped.length}件</span></div><div class="object-grid">${dropped.map(o => cardHtml(o)).join('')}</div></section>`
     : '';
   return `<div class="page-title"><h1>${esc(label)}</h1></div>${body}${rejected}`;
 }
@@ -391,10 +397,11 @@ function objectListHtml(type) {
 // asking the agent to undo it. Deciding again goes through `proposed` rather
 // than flipping straight over: re-deciding is a decision too.
 function statusButtonsHtml(o) {
+  const note = o.type === 'note';
   if (o.status === 'proposed') {
-    return `<button class="btn primary small" data-status="confirmed" data-target-id="${o.id}">確定</button><button class="btn danger small" data-status="rejected" data-target-id="${o.id}">却下</button>`;
+    return `<button class="btn primary small" data-status="confirmed" data-target-id="${o.id}">${note ? '残す' : '確定'}</button><button class="btn danger small" data-status="rejected" data-target-id="${o.id}">${note ? '不要' : '却下'}</button>`;
   }
-  return `<button class="btn small" data-status="proposed" data-target-id="${o.id}">提案中に戻す</button>`;
+  return `<button class="btn small" data-status="proposed" data-target-id="${o.id}">${note ? '戻す' : '提案中に戻す'}</button>`;
 }
 
 function cardHtml(o, { pinned = false } = {}) {
@@ -406,7 +413,7 @@ function cardHtml(o, { pinned = false } = {}) {
   const row = pinned
     ? '<div class="card-row">'
     : `<div class="card-row clickable" data-object-id="${o.id}" data-object-type="${esc(o.type)}">`;
-  return `<div class="card ${open ? 'open' : ''} ${o.status}">${row}<div class="card-main"><div class="type">${esc(TYPE_LABEL[o.type] || o.type)}</div><div class="card-title">${esc(o.title)}</div>${o.body ? `<div class="card-body">${esc(o.body)}</div>`:''}<div class="pills"><span class="pill ${o.status}">${esc(STATUS_LABEL[o.status] || o.status)}</span><span class="pill ${o.origin==='agent'?'agent':''}">${esc(ORIGIN_LABEL[o.origin] || o.origin)}</span></div></div><div class="card-actions">${statusButtonsHtml(o)}</div></div>${full ? expansionHtml(full) : ''}</div>`;
+  return `<div class="card ${open ? 'open' : ''} ${o.status}">${row}<div class="card-main"><div class="type">${esc(TYPE_LABEL[o.type] || o.type)}</div><div class="card-title">${esc(o.title)}</div>${o.body ? `<div class="card-body">${esc(o.body)}</div>`:''}<div class="pills"><span class="pill ${o.status}">${esc(statusLabel(o))}</span><span class="pill ${o.origin==='agent'?'agent':''}">${esc(ORIGIN_LABEL[o.origin] || o.origin)}</span></div></div><div class="card-actions">${statusButtonsHtml(o)}</div></div>${full ? expansionHtml(full) : ''}</div>`;
 }
 
 // The open half of a card: everything the old detail page added on top of what
