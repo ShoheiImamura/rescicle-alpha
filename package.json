@@ -7,7 +7,7 @@
   "license": "UNLICENSED",
   "private": true,
   "scripts": {
-    "dev": "node scripts/debug-cargo-env.cjs tauri dev",
+    "dev": "tauri dev",
     "build": "tauri build",
     "tauri": "tauri",
     "test": "cargo test --manifest-path src-tauri/Cargo.toml"
