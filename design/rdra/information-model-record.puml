@@ -1,0 +1,99 @@
+@startuml information-model-record
+' RDRA 情報モデル 2/2: 記録機構と主体（alpha）
+' 正: docs/05-data-model.md §9, src-tauri/src/schema.sql, docs/07 D-110 / D-120
+' RRS が目指す形（Revision、Relation Event、Egress Policy）は docs/05 §3 / §5。alpha との差は注記に書く
+title 記録の仕組みと操作する主体（alpha）
+
+skinparam defaultFontName "Noto Sans CJK JP"
+skinparam shadowing false
+skinparam roundCorner 6
+skinparam class {
+  BackgroundColor #FFFFFF
+  BorderColor #444444
+  ArrowColor #444444
+}
+skinparam ArrowFontSize 11
+hide empty members
+hide circle
+
+
+package "主体" #FDEBD0 {
+  class "研究者\n(Researcher)" as Researcher {
+    話す / 確定・却下する
+    画面で操作（actor=researcher）
+  }
+  class "AI（会話）\n(claude CLI)" as Agent {
+    構造化・代替仮説・予測・
+    次の測定を提案する
+    提案は必ず提案中で生まれる
+  }
+  class "Claude Code\n(MCP)" as Mcp {
+    同じ記録を読む / 提案する
+    確定・却下は発言の引用が必須
+  }
+  class "rescicle Core\n(System)" as System {
+    operations の検証
+    ファイルの一覧と読み取り
+    却下の 3 分後の削除
+  }
+}
+
+package "記録機構（alpha の SQLite）" #EBF5FB {
+  class "研究\n(projects)" as Project {
+    name · root_path（研究フォルダ）
+    端末に 1 つの DB に全研究（D-111）
+  }
+  class "研究オブジェクト\n(objects)" as Object {
+    type（研究構造 1/2 参照。protocol / observation 等は無い）
+    origin : researcher / agent
+    status : proposed / confirmed / rejected / archived
+    title · body · note（補足）· criterion
+    上書きする。Revision は無い（D-110）
+  }
+  class "つながり\n(relations)" as Relation {
+    predicate（6 つ）
+    status : proposed / confirmed / rejected
+    はずすと行ごと消える（D-110）
+  }
+  class "付属の表" as Ext {
+    assets（相対パス · サイズ · 更新日時）
+    measurements（performed_at）
+    criterion_symbols（name · meaning）
+  }
+  class "イベント\n(events)" as Event {
+    action : object_created / object_<status> /
+    relation_created / relation_removed /
+    file_read / mcp_read / …
+    actor · detail_json（引用など）· 日時
+  }
+  class "会話\n(messages)" as Message {
+    role · content · 日時
+  }
+}
+
+Project "1" *-- "0..*" Object
+Project "1" *-- "0..*" Relation
+Project "1" *-- "0..*" Event
+Project "1" *-- "0..*" Message
+Object "1" *-- "0..1" Ext : type ごと
+Object "1" <-- "0..*" Relation : subject / object
+
+Researcher --> Object : 確定 / 却下 / アーカイブ\n（3 分間は戻せる）
+Researcher --> Relation : 確定 / 却下 / ＋ つなぐ / はずす
+Agent --> Object : 提案（origin=agent は必ず proposed）\n研究者がそのターンで言ったときだけ\n提案中から確定・却下（D-120）
+Agent --> Relation : 提案（はずすことはできない）
+Mcp --> Object : 提案 / 引用付きの確定・却下
+System --> Event : すべての操作を 1 行ずつ
+System --> Object : 却下から 3 分後に削除
+
+note bottom of Object
+  status は curation 状態であり科学的真偽ではない（Node D-15）。
+  AI 経由の状態変更は proposed → confirmed / rejected / archived と
+  confirmed → archived だけ。確定・却下を覆せない（D-120）。
+  却下したものは 3 分後に消え、events に痕跡だけ残る（D-110 で保留）。
+end note
+note bottom of Relation
+  構造的 / 判断的の区別と自動確定は無い。1 本ずつ決める。
+  Revision pin も retracted_at も無い（D-110）。
+end note
+@enduml

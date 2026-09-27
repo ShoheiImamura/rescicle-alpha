@@ -1,0 +1,106 @@
+@startuml usecase-model
+' RDRA ユースケース複合図（alpha）: アクター → ユースケース → 対象（情報）を 1 枚に
+' 正: docs/09-usecases.md の UC-1〜UC-9、docs/08-screens.md、docs/05-data-model.md §9。F 番号は requirement-model.puml
+' 4 つのグループを縦に並べ、各グループにアクターと対象を置く（線を交差させないため）
+title alpha でできること（アクター / ユースケース / 対象）
+
+skinparam defaultFontName "Noto Sans CJK JP"
+skinparam shadowing false
+skinparam roundCorner 6
+skinparam ArrowColor #444444
+skinparam usecase {
+  BackgroundColor #FFFFFF
+  BorderColor #444444
+}
+skinparam card {
+  BackgroundColor #FEF9E7
+  BorderColor #B7950B
+}
+skinparam actor {
+  BackgroundColor #FFFFFF
+  BorderColor #444444
+}
+skinparam package {
+  BackgroundColor #FAFAFA
+  BorderColor #444444
+}
+left to right direction
+
+' 描画順の都合で 4 → 1 の順に宣言する（出力は上から 1 → 4 になる）
+' ---------------------------------------------------------------
+package "4. 外から使う / やり直す" as G4 {
+  actor "研究者" as R4
+  actor "Claude Code\n（MCP）" as C4
+  usecase "UC-8 Claude Code 側から操作する\n設定 → Claude Code に追加\nget_research_context / create_object /\nset_object_status（発言の引用が必須）F6" as UC8
+  usecase "UC-9 やり直す\n設定 → すべて消す（2 段確認）" as UC9
+  usecase "書き出す\n設定 → この研究を書き出す（JSON）F11" as UCX
+  card "研究オブジェクト · つながり · events\n（MCP の読み取りは mcp_read）" as O_ALL4
+  card "研究 · 会話 · Claude のセッション ID\n（研究フォルダには触れない）" as O_REC4
+  card "JSON（1 研究の全テーブル）" as O_EXP4
+  R4 --> UC8 : 設定で追加
+  C4 --> UC8 : MCP
+  R4 --> UC9
+  R4 --> UCX
+  UC8 ..> O_ALL4 : 読む / 提案する
+  UC9 ..> O_REC4 : 消す
+  UCX ..> O_EXP4 : 保存
+}
+' ---------------------------------------------------------------
+package "3. データをつなぐ" as G3 {
+  actor "研究者" as R3
+  actor "AI\n（会話）" as A3
+  usecase "UC-5 手元のファイルをデータにする\nデータ・ファイル → 研究フォルダを選ぶ →\nデータとして登録 → どの測定のデータか F4" as UC5
+  usecase "UC-7 測定を実施済みにする\n[実施した]（status とは別の軸）" as UC7
+  card "研究フォルダ\n（読むだけ。projects.root_path）" as O_FS3
+  card "データ（asset）\n相対パス（/ 区切り、研究内で一意）· サイズ · 更新日時" as O_ASSET3
+  card "測定の実施（measurements.performed_at）\n日付はデータの更新日時から" as O_PERF3
+  R3 --> UC5
+  A3 --> UC5 : register_asset（FILE INDEX にあるものだけ）
+  R3 --> UC7
+  A3 --> UC7 : set_performed
+  UC5 ..> O_FS3 : 一覧を読む
+  UC5 ..> O_ASSET3 : 登録 · produces
+  UC7 ..> O_PERF3
+}
+' ---------------------------------------------------------------
+package "2. 決める / 直す" as G2 {
+  actor "研究者" as R2
+  actor "AI\n（会話）" as A2
+  usecase "UC-4 提案を決める\n確定 / 却下（3 分間は通知から戻せる）\nアーカイブ（提案中・確定から）F5 F6" as UC4
+  usecase "UC-6 つながりを直す\n＋ つなぐ（型の組で述語が決まる）/\nはずす（研究者だけ）" as UC6
+  card "研究オブジェクト\nstatus: proposed → confirmed /\nrejected（3 分後に削除）/ archived" as O_OBJ2
+  card "つながり（relation）\naddresses / predicts / tested_by / produces\n+ references / related_to" as O_REL2
+  card "events\nactor · 日時 · detail" as O_EV2
+  R2 --> UC4 : カード
+  A2 --> UC4 : set_status（研究者がそのターンで\n言ったときだけ。提案中からだけ。D-120）
+  R2 --> UC6 : カード
+  UC4 ..> O_OBJ2 : status
+  UC4 ..> O_EV2
+  UC6 ..> O_REL2 : 作る / 物理削除
+  UC6 ..> O_EV2 : relation_removed
+}
+' ---------------------------------------------------------------
+package "1. 話す" as G1 {
+  actor "研究者" as R1
+  actor "AI\n（claude CLI）" as A1
+  usecase "UC-1 研究を始める\n「いま、何を調べていますか」→ はじめる\n（フォルダは後で）" as UC1
+  usecase "UC-2 会話して研究オブジェクトが現れる\n{ reply, operations } を Core が検証 F1 F2 F3" as UC2
+  usecase "UC-3 AI がファイルを読む\nread_files → 先頭 4KB（2 往復まで）F9" as UC3
+  card "研究（project）\n名前 · 研究フォルダ" as O_PRJ1
+  card "会話（messages）" as O_MSG1
+  card "研究オブジェクト（提案中）\n予測は判定式 criterion と記号表が必須\n補足は note 列" as O_OBJ1
+  card "file_read（events）\n「読み込み済み」" as O_READ1
+  R1 --> UC1
+  R1 --> UC2 : 会話欄
+  A1 --> UC2 : operations
+  A1 --> UC3 : read_files
+  UC1 ..> O_PRJ1 : 作る
+  UC2 ..> O_MSG1 : 保存
+  UC2 ..> O_OBJ1 : 提案
+  UC3 ..> O_READ1 : 記録
+}
+
+G1 -[hidden]-> G2
+G2 -[hidden]-> G3
+G3 -[hidden]-> G4
+@enduml

@@ -1,0 +1,195 @@
+@startuml requirement-model
+' RDRA 要求モデル + 匠メソッド 要求分析ツリー
+' 価値（value-model）→ 戦略要求 S → 要求 Q（アクターの言葉 = 業務要求）→ 要件 F（IT 要求）→ alpha の実装状態
+' 正: docs/01 §14, docs/10 §1 / §4, docs/04 §2, docs/05 §9, .review の匠メソッド分析 §4–5
+title 要求から要件と alpha の実装状態への追跡
+
+skinparam defaultFontName "Noto Sans CJK JP"
+skinparam shadowing false
+skinparam roundCorner 8
+skinparam ArrowColor #444444
+skinparam actorStyle awesome
+skinparam packageStyle rectangle
+skinparam usecase {
+  BackgroundColor #FEF9E7
+  BorderColor #C9A227
+}
+skinparam rectangle {
+  BackgroundColor #EBF5FB
+  BorderColor #1F618D
+}
+skinparam note {
+  BackgroundColor #FFFFFF
+  BorderColor #888888
+}
+left to right direction
+
+actor "研究者\n（実験系・若手 PI）" as R
+actor "所属機関 / 企業\n（将来）" as Org #F4F6F7
+
+package "戦略要求（価値を実現するために企画側が達成すること）" #FFF8E1 {
+  rectangle "S1 初回 15 分で自分の研究構造を見られる\n価値: V1, V2 / ゴール: 10 §4 の 1〜5, 7, 8" as S1 #FFF8E1
+  rectangle "S2 rescicle Core を経由する情報は、許した範囲以外を端末外に出さない\n（Claude Code から MCP で使うときの迂回は非機密データ限定で補う）\n価値: V4, V9 / ゴール: 研究フォルダ非書き込みと許可ツールのテスト、04 §2 の「安心」指標" as S2 #FFF8E1
+  rectangle "S3 仮説と証拠の履歴が上書きされず、後から辿れる（alpha は未達、D-110）\n耐改ざん証明・先取権は将来の署名 / 外部時刻証明（S3'）\n価値: V3, V5, V10 / ゴール: 空欄。空欄: 履歴を見返した回数" as S3 #FFF8E1
+  rectangle "S4 記録が既存標準へ写像でき、閉じない\n価値: V12, V8 / ゴール: U-05。空欄: 他ツールで開けた事例" as S4 #FFF8E1
+  rectangle "S5 4 週間以上、自発的に使い続ける\n価値: V1(情緒), V3 / ゴール: 04 §2 の Go / No-Go（離脱理由の分類を含む）" as S5 #FFF8E1
+  rectangle "S6 研究室単位で記録を共有できる（将来）\n価値: V6, V7 / ゴール: 空欄" as S6 #F4F6F7
+  rectangle "S7 機関のデータ管理・研究公正の要件を満たす（将来）\n価値: V8, V10 / ゴール: 空欄" as S7 #F4F6F7
+  rectangle "S8 企業 R&D が機密データを社外 LLM に出さずに使える\n（Mode C、段階 3 と並行、v0.2 の最初の機能。D-66）\n価値: V11 / ゴール: 04 §3 の pilot 1 社" as S8 #F4F6F7
+  rectangle "S9 非機能: onboarding 15 分以内、DB 破損からの復旧、\nProject 1 万 Record まで（値は Pilot で確定）\n価値: V1, V4" as S9 #FFF8E1
+}
+
+package "要求（アクターの言葉 = 業務要求 B）" #FEF9E7 {
+  usecase "Q1 [B1] 話すだけで問い・仮説・予測を\n整理してほしい。フォームに入力したくない" as Q1
+  usecase "Q2 [B4] 気づいていない別の説明\n（代替仮説）を出してほしい" as Q2
+  usecase "Q3 [B4] 仮説を区別できる予測と\n次に測るべきものを提案してほしい" as Q3
+  usecase "Q4 [B3] PC 内の計測データを\n仮説・予測の意味とつなげてほしい" as Q4
+  usecase "Q5 [B2] 今の研究の状態を一目で見て、\n確認・却下したい" as Q5
+  usecase "Q6 [B2] エージェントの提案と\n自分が確認したことを混ぜないでほしい" as Q6
+  usecase "Q7 [B6] 提案の根拠と仮説の履歴を\n後から辿りたい" as Q7
+  usecase "Q8 分からないことを勝手に埋めないでほしい" as Q8
+  usecase "Q9 [B5] 未公開データを許可なく\n端末の外へ出さないでほしい" as Q9
+  usecase "Q10 [B14] 実験前後の記録を区別でき、\n上書きされずに残したい（耐改ざん証明は S3'）" as Q10
+  usecase "Q11 [B7] いつでも自分のデータを持ち出せる" as Q11
+  usecase "Q12 常時 AI が動いてコストや通知で\n邪魔されたくない" as Q12
+  usecase "Q13 [B8] 週 1 回の対話で記録を\n更新し続けたい。前回の続きから始めたい" as Q13
+  usecase "Q14 [B9] 論文を書くとき記録から\n骨子を作りたい（後回し、U-12）" as Q14 #F4F6F7
+  usecase "Q15 [B10] 学生と指導教員が同じマップを\n見て議論したい（将来）" as Q15 #F4F6F7
+  usecase "Q16 [B11] データ管理計画の証跡として\n記録を使いたい（将来）" as Q16 #F4F6F7
+  usecase "Q17 [B12] どの情報がどの LLM に送られたかを\n情報セキュリティ担当に説明したい" as Q17
+  usecase "Q18 [B13] 機密データを社外 LLM に出さずに\nエージェント支援を受けたい（企業 R&D、将来）" as Q18 #F4F6F7
+  usecase "Q19 [B15] 会話で使った名前（H1、P2）が\n画面でも同じ名前で見えてほしい" as Q19
+  usecase "Q20 [B16] 画面は自分の言葉と日本語で、\n述語や ID を知らなくても読めてほしい" as Q20
+  usecase "Q21 [B17] 次に何を測るかが一箇所に\nまとまって見えてほしい" as Q21
+  usecase "Q22 [B18] 自分が確認すべきものだけが\n確認すべきものとして見えてほしい" as Q22
+}
+
+package "要件（IT 要求 F）" #EBF5FB {
+  rectangle "F1 会話から問い / 仮説 / 予測 / 測定を operations で提案し、\nrescicle が 1 件ずつ検証して保存（D-112）" as F1
+  rectangle "F2 代替仮説を origin=agent の提案中として出す\n（エージェント指示。based_on は無い）" as F2
+  rectangle "F3 仮説を見分ける予測（判定式つき）と測定を組で提案。\n同じ測定に複数の予測が tested_by（protocol は無い、D-117）" as F3
+  rectangle "F4 研究フォルダのファイル一覧を渡し、AI が挙げたファイルの\n先頭 4KB を読む。データとして登録し produces で測定に結ぶ\n（hash・列・統計・観測の抽出は無い）" as F4
+  rectangle "F5 マップ / 一覧 / 検索。カードで確定・却下、\nつながりも 1 本ずつ。3 分間は通知から戻せる" as F5
+  rectangle "F6 全オブジェクト / 関係に origin と status。AI 由来は必ず提案中で生まれ、\nAI 経由の状態変更は提案中からだけ。MCP の確定・却下は発言の引用が必須（D-120）" as F6
+  rectangle "F7 提案の根拠を based_on と Revision pin で保持し表示" as F7
+  rectangle "F8 分からないことはオブジェクトの補足（note 列、D-115）に書く。\n閾値は AI が決めずに聞く。質問は 10 §2 の条件のときだけ" as F8
+  rectangle "F9 AI の作業場所は研究フォルダではない。許可ツールは\nWebSearch / WebFetch だけ。ファイルの中身は read_files 経由だけで、\n読んだものは file_read に残る。研究フォルダに書かない（D-111 / D-112）" as F9
+  rectangle "F10 不変 Revision + Event + Relation pin、Timeline を導出（D-110 で保留）" as F10
+  rectangle "F11 エクスポート。JSON（1 研究の全テーブル、D-127）は済み。\nRO-Crate / PROV-O は未（U-05）" as F11
+  rectangle "F12 AI は送信したときだけ動く（1 ターン = claude -p 1 回）。\n渡す量を制限（ファイル名 120 件、抜粋 4KB、読み込み 2 往復）" as F12
+  rectangle "F13 次回の入口: 最後に開いた研究を開き、会話は --resume で続く。\nAI には直近の操作（events 30 件）も渡る（D-125）" as F13
+  rectangle "F15 送信範囲の説明: 設定画面の説明と、読んだファイルの記録\n（「読み込み済み」、MCP の読み取りは mcp_read）。説明パケットの書き出しは無い" as F15
+  rectangle "F14 共有・権限、PROV-O / Nanopub / GakuNin RDM 写像、Mode C（将来）" as F14 #F4F6F7
+  rectangle "F16 オブジェクトにラベル（Q1 / H1 / P2）。会話・画面で同じ名前（D-81）" as F16
+  rectangle "F17 画面の語は日本語（確定 / 却下 / 研究オブジェクト、D-118）。\n語彙の機械検査は無い（D-82）" as F17
+  rectangle "F18 「次の一手」: 見分ける予測 + 測定 + 仮説を 1 枚に" as F18
+  rectangle "F19 確認カードは判断的関係だけを操作対象にし、\n構造的関係は自動で確定" as F19
+}
+
+package "alpha の状態（v0.0.10 + D-120〜）" #E9F7EF {
+  rectangle "済" as Done #D5F5E3
+  rectangle "一部" as Part #FCF3CF
+  rectangle "未（gap-from-node.md §3、D-110 / D-117）" as Todo #F4F6F7
+}
+
+' アクター → 戦略要求
+R --> S1
+R --> S2
+R --> S3
+R --> S4
+R --> S5
+Org --> S2
+Org --> S6
+Org --> S7
+Org --> S8
+R --> S9
+
+' 戦略要求 → 要求
+S1 --> Q1
+S1 --> Q2
+S1 --> Q3
+S1 --> Q4
+S1 --> Q5
+S1 --> Q8
+S1 --> Q19
+S1 --> Q20
+S1 --> Q21
+S1 --> Q22
+S2 --> Q9
+S3 --> Q6
+S3 --> Q7
+S3 --> Q10
+S4 --> Q11
+S5 --> Q12
+S5 --> Q13
+S5 --> Q14
+S6 --> Q15
+S7 --> Q16
+S2 --> Q17
+S8 --> Q18
+S9 --> Q1
+S9 --> Q12
+
+' 要求 → 要件
+Q1 --> F1
+Q1 --> F5
+Q2 --> F2
+Q3 --> F3
+Q4 --> F4
+Q5 --> F5
+Q6 --> F6
+Q7 --> F7
+Q7 --> F10
+Q8 --> F8
+Q9 --> F9
+Q10 --> F10
+Q10 --> F6
+Q11 --> F11
+Q12 --> F12
+Q13 --> F13
+Q14 --> F14
+Q15 --> F14
+Q16 --> F14
+Q16 --> F11
+Q17 --> F15
+Q17 --> F9
+Q18 --> F14
+Q19 --> F16
+Q20 --> F17
+Q21 --> F18
+Q22 --> F19
+Q5 --> F19
+Q13 --> F18
+
+' 要件 → alpha の状態
+F1 --> Done
+F5 --> Done
+F6 --> Done
+F8 --> Done
+F9 --> Done
+F12 --> Done
+F13 --> Done
+F2 --> Part
+F3 --> Part
+F4 --> Part
+F11 --> Part
+F15 --> Part
+F17 --> Part
+F7 --> Todo
+F10 --> Todo
+F14 --> Todo
+F16 --> Todo
+F18 --> Todo
+F19 --> Todo
+
+legend right
+  |= 記号 |= 意味 |
+  | 黄の四角 | 戦略要求 S: 価値（value-model の V）を実現するために達成すること。ゴールと指標を併記 |
+  | 楕円 | 要求 Q: アクターの言葉。[B] は匠の業務要求番号 |
+  | 青の四角 | 要件 F: システムがすること = IT 要求 |
+  | 緑の枠 | alpha の実装状態（Node 版の Milestone M0〜M7 の代わり） |
+  | 灰色 | 範囲外（将来、または判定中） |
+  正本: V / S は docs/04 §7、C は docs/01 §15、成功条件は docs/10 §4、alpha の範囲は docs/05 §9。
+  V → S → Q → F → 状態 の全ノードが少なくとも 1 本ずつ接続されていることを維持する。
+endlegend
+@enduml

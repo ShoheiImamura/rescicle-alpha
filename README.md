@@ -1,4 +1,4 @@
-# rescicle — first user build v0.0.8
+# rescicle — first user build v0.0.10
 
 最初の研究ユーザー向けの、ローカル完結型デスクトップMVPです。
 
@@ -95,7 +95,7 @@ rescicleはローカルのstdio MCPサーバーとしても動作します。Cla
 - 現在の研究コンテキストの読み取り
 - proposedなObjectの作成
 - proposedなRelationの作成
-- Objectの確定・却下
+- Objectの確定・却下・アーカイブ（研究者の発言の引用が必須。提案中のものだけ）
 - Measurementを実施済みにする / 戻す
 - プロジェクト内ファイルのメタデータ一覧
 - 既存のローカルファイルのAsset登録
@@ -121,7 +121,7 @@ claude mcp add --transport stdio --scope user rescicle -- "C:\...\rescicle.exe" 
 
 - Question
 - Hypothesis
-- Prediction
+- Prediction — 判定式（`criterion`）が必須。何と比べて、どうなったら外れるのかを式で書き、式に出てくる量を記号として宣言します
 - Measurement
 - Asset
 
@@ -145,7 +145,7 @@ Relation:
 
 `confirmed` になったものに、常設の動詞はありません。`提案中に戻す` は「決めたことを未決に戻す」という誰もしない行為で、実在するのは押し間違いに気づく数分だけなので、確定も却下も**直後の数分だけ通知から戻せる**形にしました。
 
-`archived` は、確定したものが済んだときの行き先です — 答えが出た、乗り越えられた、検証して違っていた。マップと一覧から外れ、検索で見つかり、**消えません**。`rejected` との違いは残るかどうかです。却下は「間違いだった」で3分後に消えますが、**検証して反証された仮説は間違いではなく研究そのもの**なので、消す先しか無いのは誤りでした。カードを開いた中の控えめな位置にあり、確定・却下とは並べていません — 稀に、意図して押すものだからです。戻すのも同じ場所から、期限なく。
+`archived` は、済んだものの行き先です — 答えが出た、乗り越えられた、検証して違っていた。提案中からも確定からもアーカイブでき、戻すと元の状態に戻ります。マップと一覧から外れ、検索で見つかり、**消えません**。`rejected` との違いは残るかどうかです。却下は「間違いだった」で3分後に消えますが、**検証して反証された仮説は間違いではなく研究そのもの**なので、消す先しか無いのは誤りでした。カードを開いた中の控えめな位置にあり、確定・却下とは並べていません — 稀に、意図して押すものだからです。戻すのも同じ場所から、期限なく。
 
 `rejected` は保管ではなく破棄です。却下したものはどの画面からも消え、**3分後に削除されます**。押し間違いに気づくのはたいてい数秒後なので、そのあいだは通知から「戻す」で取り消せます。過ぎたら消えます — 研究者が要らないと言ったものを、一覧の末尾に永久に置いておく理由はありません。消えるときは、そこに入っていた線・Asset・測定の記録も一緒に消えます。ログ（`events`）は残るので、あったことと捨てたことは辿れます。
 
@@ -156,7 +156,7 @@ Measurementだけは、これに加えて**実施したかどうか**を持ち�
 - `src/renderer/` — 画面。ビルド工程のない素のHTML / CSS / JavaScriptです。`bridge.js` が `window.rescicle` を組み立てるので、`app.js` は自分がどのランタイムの上にいるかを知りません。
 - `src-tauri/` — Rust側。ドメイン検証、SQLite、`claude` CLIの駆動、stdio MCPサーバー。
 
-どの画面に何があるかは [docs/screens.md](docs/screens.md)、研究者が何をしようとして中で何が起きるかは [docs/usecases.md](docs/usecases.md) にまとめています。URLもルーターもなく、`state.workspace` の有無と `state.currentScreen` だけで決まります。
+どの画面に何があるかは [docs/08-screens.md](docs/08-screens.md)、研究者が何をしようとして中で何が起きるかは [docs/09-usecases.md](docs/09-usecases.md) にまとめています。設計文書の目次は [docs/README.md](docs/README.md)、決定事項は [docs/07-decisions.md](docs/07-decisions.md)（alpha は D-110 から）、図は [design/](design/README.md) にあります。URLもルーターもなく、`state.workspace` の有無と `state.currentScreen` だけで決まります。
 
 ## 開発
 
@@ -226,8 +226,8 @@ cargo test --manifest-path src-tauri/Cargo.toml --test claude_cli a_real_turn --
 リリースは開発マシンからではなく、GitHub Actions（`.github/workflows/release.yml`）でビルド・公開します:
 
 1. バージョンを上げる: `package.json` / `src-tauri/Cargo.toml` / `src-tauri/tauri.conf.json` の3箇所を同じ番号に揃えてコミット。ワークフローが3つの一致を検査するので、上げ忘れはそこで落ちます。
-2. タグを打って push: `git tag v0.0.8 && git push origin main && git push origin v0.0.8`。`--tags` は不要なローカルタグまで送ってしまうので使いません。
-3. ワークフローがテストを実行し、`windows-latest` でインストーラをビルドし、`gh` で `v0.0.8` GitHub Releaseを作成して `rescicle-Setup.exe` を添付します。最後にアセットが実際に乗ったか検証するので、添付に失敗すればジョブが赤くなります。
+2. タグを打って push: `git tag v0.0.10 && git push origin main && git push origin v0.0.10`。`--tags` は不要なローカルタグまで送ってしまうので使いません。
+3. ワークフローがテストを実行し、`windows-latest` でインストーラをビルドし、`gh` で `v0.0.10` GitHub Releaseを作成して `rescicle-Setup.exe` を添付します。最後にアセットが実際に乗ったか検証するので、添付に失敗すればジョブが赤くなります。
 
 タグは `v<package.jsonのversion>` と一致している必要があります（ワークフローの guard ステップが検査します）。Tauriが出力するファイル名にはバージョンが入りますが、ワークフローが `rescicle-Setup.exe` にリネームしてから添付するため、冒頭のダウンロードリンクはバージョンを上げても更新不要です。
 
@@ -239,7 +239,7 @@ AIランタイムは同梱していません。rescicleはユーザーがすで�
 - 常時モニタリング
 - Jev
 - Observation / Analysis / Result / Claim
-- 文献検索
+- 文献データベースとの連携（AIのウェブ検索とページ取得はある）
 - 論文生成
 - クラウド同期
 - 共同編集 / 公開

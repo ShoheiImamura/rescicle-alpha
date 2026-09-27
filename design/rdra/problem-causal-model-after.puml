@@ -1,0 +1,166 @@
+@startuml problem-causal-model-after
+' 課題の因果モデルの after。problem-causal-model（before）とノード・矢印・枠を同じにし、
+' 各ノードの中身だけを「rescicle があるとどうなるか」に書き換える。変わらないものは変わらないと書く。
+' 色は rescicle が効くノードと矢印にだけ付ける（濃い緑: 変わる / 薄い緑: 一部・将来）。それ以外は before と同じ白と灰。
+' 枠は課題のグループ（docs/02 の §1〜8 を 5 つにまとめたもの）。層（根 / 誘因と行動 / 結果）は各ノードのステレオタイプで示す。
+' 正: docs/02-science-problems.md（K の定義と rescicle との関係）
+title 課題の因果（rescicle がある科学）（つながりは before と同じ。緑が rescicle で変わるところ）
+
+skinparam defaultFontName "Noto Sans CJK JP"
+skinparam shadowing false
+skinparam nodesep 12
+skinparam ranksep 40
+skinparam roundCorner 8
+skinparam ArrowColor #888888
+skinparam packageStyle rectangle
+skinparam package {
+  BorderColor #AAAAAA
+  FontColor #555555
+  FontStyle normal
+}
+skinparam rectangle {
+  BorderColor #444444
+  BackgroundColor #FFFFFF
+}
+skinparam rectangleStereotypeFontColor #888888
+skinparam rectangleStereotypeFontSize 10
+
+package "評価と出版（§1 / §4 / §6）" {
+  rectangle "K-04 評価が引用数とジャーナル格付け" <<根>> as K04
+  rectangle "K-54 出版社の寡占（K-74〜76 利益構造）" <<根>> as K54
+  rectangle "K-01 論文が科学の最小単位\n→ 論文は研究記録から生成する一\nつのビューになり、測定・仮説・再\n現がレコード単位で残る（業績にな\nるかは制度次第）" <<根>> as K01 #A8DDBB;line:2E8B57
+  rectangle "K-02 論文になるまで途中が見えない\n→ 途中は記録に残る。\n外に見えるかは\nSelectivePublish\nとNetwork次第で、\n出すかは研究者が決める" <<誘因と行動>> as K02 #E3F4E8;line:6FB58A
+  rectangle "K-03 出版バイアス\n→ 否定的結果は \ncontradicts、\n捨てた仮説は理由付き\nrejected として残り、\n公開にも出る（D-88）。\n論文に載るかは別" <<誘因と行動>> as K03 #A8DDBB;line:2E8B57
+  rectangle "K-10 先取権が出版日で決まる\n→ 仮説を立てた日付と改訂履歴は\n残る。耐改ざん証明は将来の署名 \n/ 外部時刻証明" <<誘因と行動>> as K10 #E3F4E8;line:6FB58A
+  rectangle "K-07 HARKing / p-hacking の誘因\n→ 誘因は残る。予測は測定前に\ncondition/ \nobservable / \nexpectedで記録され、\n後からの改訂は履歴に残るので余地\nが狭まる" <<誘因と行動>> as K07 #E3F4E8;line:6FB58A
+  rectangle "K-87 捏造・改ざんの誘因\n→ 誘因は残る。不変リビジョンと\n履歴で改ざんの痕跡が残るので実行\nの余地が狭まる（リビジョンは目標、\nalpha は未達。耐改ざん証明は将来）" <<誘因と行動>> as K87 #E3F4E8;line:6FB58A
+  rectangle "K-14 / K-15 購読料と APC の壁" <<誘因と行動>> as K14
+  rectangle "K-32 査読が無報酬で過負荷\n→ Network 段階で証拠の\n構造を査読の対象にできる可能性" <<誘因と行動>> as K32
+  rectangle "K-36 / K-40 捕食誌・論文工場" <<誘因と行動>> as K40
+}
+
+package "記録と来歴（§3 / §5）" {
+  rectangle "K-21 記録が個人と紙に閉じる\n→ 研究記録として手元に残る。\noriginとstatus、\n不変リビジョン、来歴付き。\n出るのは許した情報だけ" <<根>> as K21 #A8DDBB;line:2E8B57
+  rectangle "K-46 クラウド AI へのデータ流出\n→ AI に渡る範囲を rescicle\nが決め、読んだファイルは\n必ず記録に残る（MCP 経由の\nClaude Code の迂回は\n保証外）" <<誘因と行動>> as K46 #A8DDBB;line:2E8B57
+  rectangle "K-22 生データが論文に付かない\n→ 測定とアセットがハッシュ付き\nで記録に紐づく。公開するかは研究\n者次第" <<誘因と行動>> as K22 #E3F4E8;line:6FB58A
+  rectangle "K-23 来歴標準を手で書けない\n→ 手で書かない。エージェントと\nCoreが生成し、PROV-O \n/RO-Crateへ写像する（\nU-05）" <<誘因と行動>> as K23 #A8DDBB;line:2E8B57
+  rectangle "K-28 AI が入り、誰の主張か曖昧になる\n→ origin=agent と\n研究者のconfirmが分かれ、\nエージェントは勝手に確定できない" <<誘因と行動>> as K28 #A8DDBB;line:2E8B57
+  rectangle "K-83 手順の暗黙知\n→ 測定の条件・装置・サンプルと\n観測が記録に紐づき、\nMethods に書かれない条件\nが残る（alpha は判定式の\n記号とデータの登録まで）" <<誘因と行動>> as K83 #A8DDBB;line:2E8B57
+  rectangle "K-31 改ざんを事後にしか検証できない\n→ 不変リビジョンと履歴で改ざん\nが検出できる（alpha は未達、\n耐改ざん証明は将来）" <<結果>> as K31 #A8DDBB;line:2E8B57
+  rectangle "K-60 暗黙知が本人と一緒に消える\n→ 捨てた仮説・理由・分からない\nことのメモが残る。頭の中の全部ではない" <<結果>> as K60 #A8DDBB;line:2E8B57
+}
+
+package "資金・雇用と研究室（§6 / §7）" {
+  rectangle "K-53 / K-55 資金と雇用が論文実績と短期成果に紐づく" <<根>> as K53
+  rectangle "K-62 ラボの階層が異論を封じる\n→ 階層は変わらない。\nエージェントが異論を\nproposed で出すので、\n階層に依らない異論の経路ができる" <<誘因と行動>> as K62 #E3F4E8;line:6FB58A
+  rectangle "K-56 / K-64 申請書と管理業務が考える時間を奪う\n→ 記録の負担は減る（話すだけ）。\n申請書と管理業務は減らない" <<誘因と行動>> as K64 #E3F4E8;line:6FB58A
+  rectangle "K-94 雇用の不安\n→ 見通しが立っても契約更新の条\n件は変わらない" <<誘因と行動>> as K94
+  rectangle "K-52 途中を共有すると先を越される恐怖\n→ 残る。ただし出す範囲をレコー\nド単位で選べるので、\n全か無かではなくなる" <<誘因と行動>> as K52 #E3F4E8;line:6FB58A
+  rectangle "K-61 代替仮説が検討されない\n→ エージェントが根拠付きで代替\n仮説を提案し、採否（\nconfirm / reject）\nが記録に残る" <<誘因と行動>> as K61 #A8DDBB;line:2E8B57
+  rectangle "K-63 研究の見通しが立たない不安\n→ 次に測るものと条件の書き漏れが\n一箇所に見える（V1。06 §2 の試\n用で測る）" <<結果>> as K63 #A8DDBB;line:2E8B57
+  rectangle "K-92 若手の研究職離れ\n→ 不安が減っても任期と資金は変\nわらない" <<結果>> as K92
+}
+
+package "参加の境界（§2）" {
+  rectangle "K-11 参加資格が機関所属で決まる\n→ 部分参加の入口（測定・再現・\n代替仮説をproposed で入\nれる）を設計で残すだけ（D-86）" <<根>> as K11 #E3F4E8;line:6FB58A
+  rectangle "K-12 市民科学が作業の外注に留まる\n→ 将来はメモと測定が参加の受\nけ皿になる（D-86）（alpha\nは未対応）" <<誘因と行動>> as K12 #E3F4E8;line:6FB58A
+  rectangle "K-13 技術者・学生の貢献が消える\n→ 将来は測定をorigin 付\nきで入れ、帰属が残る（D-86）\n（alphaは未対応）" <<誘因と行動>> as K13 #E3F4E8;line:6FB58A
+  rectangle "K-18 途上国・小規模機関が解釈する側になれない" <<結果>> as K18
+  rectangle "K-19 一般人が「分かっていること / いないこと」を知れない\n→ Networkで公開された記\n録がその形で見える可能性（\nalpha は未対応）" <<結果>> as K19 #E3F4E8;line:6FB58A
+}
+
+package "科学の信頼と社会（§4 / §6 / §8）" {
+  rectangle "K-33 再現性危機\n→ 再現の記録を主張に紐づける形\nは用意される。再現する動機（評価）\nは変わらない" <<結果>> as K33 #E3F4E8;line:6FB58A
+  rectangle "K-35 疑似科学が論文の形式を借りる\n→ 形式を借りる行為は止まらない。\n証拠の構造で信頼を判断する材料が\nできるだけ" <<結果>> as K35 #E3F4E8;line:6FB58A
+  rectangle "K-41 メタ分析の過大評価\n→ 否定的結果が記録に残るので、\n記録が集まれば材料になる。\n論文ベースのメタ分析は変わらない" <<結果>> as K41 #E3F4E8;line:6FB58A
+  rectangle "K-91 重複研究と資源の浪費\n→ 否定的結果が残る分だけ減る。\n他人の記録が見えるのは \nNetwork 段階" <<結果>> as K91 #E3F4E8;line:6FB58A
+  rectangle "K-68 科学への信頼低下\n→ 上流（K-33 \n/K-35/K-19）が一部変わ\nる分だけ、長期で効く可能性" <<結果>> as K68
+  rectangle "K-69 誤情報が科学の形式を借りて拡散" <<結果>> as K69
+  rectangle "K-93 科学の速度低下\n→ 上流の一部が変わる分だけ長期\nで効く可能性" <<結果>> as K93
+}
+
+K01 -[#2E8B57,bold]-> K02
+K01 -[#2E8B57,bold]-> K03
+K04 --> K03
+K01 --> K10
+K10 -[#2E8B57,dashed]---> K52
+K53 --> K52
+K04 --> K07
+K53 ----> K07
+K53 --> K64
+K21 -[#2E8B57,bold]-> K23
+K64 -[#2E8B57,bold]---> K23
+K21 -[#2E8B57,bold]-> K22
+K52 ----> K22
+K21 -[#2E8B57,bold]-> K28
+K62 -[#2E8B57,bold]-> K61
+K01 -[#2E8B57,dashed]---> K13
+K11 -[#2E8B57,dashed]-> K13
+K11 -[#2E8B57,dashed]-> K12
+K01 -[#2E8B57,dashed]---> K12
+K04 --> K32
+K54 --> K32
+K04 --> K40
+K54 --> K40
+K54 --> K14
+K03 -[#2E8B57,bold]---> K41
+K03 ----> K33
+K07 -[#2E8B57,dashed]---> K33
+K22 ----> K33
+K32 ----> K33
+K40 ----> K35
+K32 -[#2E8B57,dashed]---> K35
+K21 -[#2E8B57,bold]-> K60
+K21 -[#2E8B57,bold]-> K31
+K28 -[#2E8B57,bold]-> K31
+K64 --> K63
+K61 -[#2E8B57,bold]-> K63
+K21 -[#2E8B57,bold]---> K63
+K02 -[#2E8B57,dashed]---> K19
+K14 ----> K19
+K14 ----> K18
+K33 --> K68
+K35 --> K68
+K19 -[#2E8B57,dashed]---> K68
+K35 --> K69
+K04 --> K87
+K53 ----> K87
+K87 -[#2E8B57,dashed]---> K31
+K87 ----> K33
+K87 ----> K68
+K21 -[#2E8B57,bold]-> K83
+K83 -[#2E8B57,bold]---> K33
+K46 -[#2E8B57,bold]---> K63
+K46 -[#2E8B57,bold]-> K28
+K02 -[#2E8B57,dashed]---> K91
+K03 -[#2E8B57,bold]---> K91
+K33 --> K91
+K53 --> K92
+K63 --> K92
+K64 --> K92
+K91 --> K93
+K92 ----> K93
+K33 --> K93
+K68 --> K93
+K40 --> K32
+K52 -[#2E8B57,dashed]---> K02
+K28 ----> K40
+K62 ----> K07
+K64 -[#2E8B57,dashed]---> K21
+K11 --> K18
+K53 --> K94
+K94 ----> K07
+K94 --> K52
+K94 --> K63
+K94 --> K92
+
+legend bottom left
+  <b>枠</b>: 課題のグループ（括弧内は docs/02 の節）
+  <b>ノードの層</b>: «根» 制度・経済の構造 / «誘因と行動» 研究者がそう振る舞う理由 / «結果» 社会と研究者が被る状態
+  <b>before との対応</b>: ノード・矢印・枠は before と同じ。各ノードは「before の課題 → after の状態」
+  <b>ノード</b>: 濃い緑 = 変わる / 薄い緑 = 一部変わる、または将来（Network 段階、D-86）/ 白 = 変わらない
+  <b>矢印</b>: 緑太線 = この連鎖が断たれる / 緑破線 = 弱まる、または将来断てる可能性 / 灰 = そのまま残る
+  <b>読み方</b>: 根で変わるのは K-01 と K-21 だけ。制度（K-04 / K-53 / K-54）は変わらないので、
+  そこから出る灰の矢印の先（K-14 / K-32 / K-40 / K-18 / K-68 / K-69 / K-92）も変わらない。
+endlegend
+@enduml

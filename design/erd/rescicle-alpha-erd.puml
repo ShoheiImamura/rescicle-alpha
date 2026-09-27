@@ -1,0 +1,118 @@
+@startuml rescicle-alpha-erd
+' alpha の SQLite（%AppData%\rescicle\rescicle.sqlite）の ERD
+' 正: src-tauri/src/schema.sql と db.rs の起動時の列追加（criterion / criterion_note / note / assets.project_id）
+' RRS との差は docs/05-data-model.md §9
+title alpha のデータベース（SQLite）
+
+skinparam defaultFontName "Noto Sans CJK JP"
+skinparam shadowing false
+skinparam roundCorner 6
+skinparam linetype ortho
+skinparam class {
+  BackgroundColor #FFFFFF
+  BorderColor #444444
+  ArrowColor #444444
+}
+hide circle
+hide methods
+
+entity "projects\n研究" as projects {
+  * id : TEXT <<PK>>
+  --
+  * name : TEXT
+  * root_path : TEXT　研究フォルダ（空で始められる）
+  * created_at : TEXT
+  * last_opened_at : TEXT
+}
+
+entity "objects\n研究オブジェクト" as objects {
+  * id : TEXT <<PK>>
+  --
+  * project_id : TEXT <<FK>>
+  * type : TEXT　question / hypothesis / prediction / measurement / asset
+  * title : TEXT
+  body : TEXT
+  note : TEXT　補足（D-115）
+  criterion : TEXT　予測だけ。判定式（必須）
+  criterion_note : TEXT　判定式の補足
+  * origin : TEXT　researcher / agent / system / instrument / imported
+  * status : TEXT　proposed / confirmed / rejected / archived
+  * created_at : TEXT
+  * updated_at : TEXT
+}
+
+entity "relations\nつながり" as relations {
+  * id : TEXT <<PK>>
+  --
+  * project_id : TEXT <<FK>>
+  * subject_id : TEXT <<FK>>
+  * predicate : TEXT　addresses / predicts / tested_by / produces / references / related_to
+  * object_id : TEXT <<FK>>
+  * origin : TEXT
+  * status : TEXT　proposed / confirmed / rejected
+  * created_at : TEXT
+}
+
+entity "assets\nデータ" as assets {
+  * object_id : TEXT <<PK, FK>>
+  --
+  project_id : TEXT　UNIQUE(project_id, relative_path)
+  * relative_path : TEXT　/ 区切り
+  * size_bytes : INTEGER
+  * modified_at : TEXT
+  sha256 : TEXT　未使用（NULL）
+  media_type : TEXT　未使用（NULL）
+}
+
+entity "measurements\n測定の実施" as measurements {
+  * object_id : TEXT <<PK, FK>>
+  --
+  performed_at : TEXT　データの更新日時。無ければ NULL
+}
+
+entity "criterion_symbols\n判定式の記号" as symbols {
+  * id : TEXT <<PK>>
+  --
+  * object_id : TEXT <<FK>>
+  * name : TEXT　式の中の名前
+  meaning : TEXT
+  * created_at : TEXT
+}
+
+entity "messages\n会話" as messages {
+  * id : TEXT <<PK>>
+  --
+  * project_id : TEXT <<FK>>
+  * role : TEXT
+  * content : TEXT
+  * created_at : TEXT
+}
+
+entity "events\n操作の記録" as events {
+  * id : TEXT <<PK>>
+  --
+  * project_id : TEXT <<FK>>
+  object_id : TEXT　FK なし（消えたものも指す）
+  relation_id : TEXT　FK なし
+  * action : TEXT　object_created / object_<status> / relation_removed / file_read / mcp_read …
+  * actor : TEXT　researcher / agent / researcher-via-agent / researcher-via-mcp
+  detail_json : TEXT
+  * created_at : TEXT
+}
+
+projects ||--o{ objects
+projects ||--o{ relations
+projects ||--o{ messages
+projects ||--o{ events
+objects ||--o{ relations : subject
+objects ||--o{ relations : object
+objects ||--o| assets : type=asset
+objects ||--o| measurements : type=measurement
+objects ||--o{ symbols : type=prediction
+
+note bottom of events
+  events だけは外部キーで物理削除に連動しない。
+  却下したオブジェクト（3 分後に削除）や はずした線の痕跡はここにだけ残る（D-110）。
+  削除は ON DELETE CASCADE。プロジェクトを消すとすべて消える。
+end note
+@enduml

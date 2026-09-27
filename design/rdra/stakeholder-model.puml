@@ -1,0 +1,68 @@
+@startuml stakeholder-model
+' 匠メソッド: ステークホルダーモデル（RDRA コンテキストモデルの補助）
+' 正: .review の匠メソッド分析 §1、docs/04 §2、docs/01 §9–11
+title 関わる人と優先順位（alpha の重みつき）
+
+skinparam defaultFontName "Noto Sans CJK JP"
+skinparam shadowing false
+skinparam roundCorner 8
+skinparam actorStyle awesome
+skinparam packageStyle rectangle
+skinparam rectangle {
+  BorderColor #444444
+}
+
+rectangle "<b>rescicle</b>\n（企画側: 開発者・事業責任者 = 主要）" as sys #D6EAF8
+
+package "直接利用者" #FDEBD0 {
+  actor "実験系の若手 PI\n（デザインパートナー）\n<b>主要</b>" as pi
+  actor "研究室の学生・ポスドク\n中（Lab tier の実利用者）\n<i>alpha 対象外</i>" as student #F4F6F7
+}
+package "意思決定者・周辺" #FEF9E7 {
+  actor "指導教員・研究室の PI\n中（Lab tier の購買者）\n<i>alpha 対象外</i>" as boss #F4F6F7
+  actor "共同研究者（他機関）\n低（Network 段階）" as collab #F4F6F7
+}
+package "組織" #E9F7EF {
+  actor "情報セキュリティ・\n生成 AI 利用ポリシー担当\n<b>高</b>（どのエージェントを使えるか）" as sec
+  actor "研究推進部門・URA\n中（Institution tier、研究公正）" as ura #F4F6F7
+  actor "資金配分機関\nJSPS / JST / AMED\n中（データ管理計画）" as funder #F4F6F7
+}
+package "供給者・実装者" #EBF5FB {
+  rectangle "Anthropic\n（Claude Code、規約。他社 CLI は将来）\n<b>高</b>（platform 依存）" as anthropic
+  rectangle "RRS を実装する他ツール\n低" as impl #F4F6F7
+  rectangle "装置メーカー\n低" as vendor #F4F6F7
+}
+package "外部基盤・社会" #F4F6F7 {
+  rectangle "GakuNin RDM / JaLC\n低（Export 先）" as rdm
+  rectangle "ジャーナル・出版社・査読者\n低（Network 段階）" as journal
+  rectangle "科学コミュニティ\n（再現性・研究公正）低" as community
+}
+package "先行市場" #FADBD8 {
+  actor "企業 R&D の研究者・知財部門\n中（Mode C の有償 pilot）" as corp
+}
+
+pi --> sys : 話す・確認する・データを指す
+sys --> pi : Research Map、提案、次の測定
+student ..> sys : 記録・相談（将来）
+boss ..> student : 指導
+sec --> pi : エージェント / 外部 LLM の利用可否
+sec --> sys : 送信範囲の説明を要求\n（Q17、egress-report）
+ura ..> sys : データ管理義務の証跡（将来）
+funder ..> ura : データ管理計画の要求
+anthropic --> sys : claude CLI、MCP、規約
+impl ..> sys : RRS 互換（将来）
+vendor ..> sys : RRS Measurement 出力（将来）
+sys ..> rdm : Export（将来）
+sys ..> journal : Selective Publish（将来）
+collab ..> journal
+collab ..> pi : 共同研究（Selective Publish 経由、将来）
+community ..> journal : 再現・査読（Network 段階）
+corp ..> sys : Mode C pilot（並行トラック）
+
+legend right
+  太字: alpha で重みが高い。灰色: alpha では対象外だが視野に入れる。
+  <b>指摘</b>（匠メソッド分析 §1）: 若手 PI の日常には学生と指導教員が必ずいる。
+  「学生にマップを見せる」「PI に進捗を説明する」場面は個人利用の価値にも効く。
+  Lab tier の要求はここから出るので、対象外でもモデルに載せておく。
+endlegend
+@enduml

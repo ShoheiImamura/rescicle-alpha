@@ -1,0 +1,48 @@
+@startuml core-vision
+' 正: docs/01-concept.md §1
+title 研究者の頭の中・PC 内のデータ・科学的な意味構造をつなぐ
+
+skinparam defaultFontName "Noto Sans CJK JP"
+skinparam shadowing false
+skinparam roundCorner 10
+skinparam ArrowColor #444444
+skinparam ArrowFontSize 12
+skinparam actorStyle awesome
+skinparam rectangle {
+  BackgroundColor #FFFFFF
+  BorderColor #444444
+}
+left to right direction
+
+actor "研究者" as R
+
+rectangle "<b>頭の中</b>\n問い・仮説・考え" as Head #FFF8E1
+rectangle "<b>PC 内のデータ</b>\n計測ファイル\n（中身は PC に残る）" as Data #E8F1FB
+
+rectangle "<b>AI エージェント</b>\n本人の契約で動く" as Agent
+
+rectangle "<b>研究記録</b>（機械可読・科学的な意味構造）" as Rec #EEF7EE {
+  rectangle "問い" as Q
+  rectangle "仮説" as H
+  rectangle "予測" as P
+  rectangle "測定" as M
+  rectangle "観測" as O
+  rectangle "結果" as Res
+  Q --> H
+  H --> P
+  P --> M
+  M --> O
+  O --> Res
+  Res ..> H : 支持 / 否定\n（証拠）
+}
+
+rectangle "<b>研究マップ</b>\n研究者が見て確かめる" as Map
+
+R --> Head
+R --> Data
+Head --> Agent : 自然に話す\n（フォームに入力しない）
+Data --> Agent : 見せる
+Agent --> Rec : 構造にして提案する
+Rec --> Map : 見える形にする
+Map --> R : 採用 / 却下 / 修正\n（決めるのは研究者）
+@enduml

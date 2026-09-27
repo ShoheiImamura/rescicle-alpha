@@ -1,0 +1,162 @@
+@startuml problem-causal-model
+' 課題の因果モデル（今の科学）。docs/02 の K-番号を矢印で原因 → 結果につなぐ。
+' 枠は課題のグループ（docs/02 の §1〜8 を 5 つにまとめたもの）。層（根 / 誘因と行動 / 結果）は各ノードのステレオタイプで示す。
+' 色は付けない。rescicle がどこに効くかは after（problem-causal-model-after）で示す。
+' 正: docs/02-science-problems.md（K の定義と rescicle との関係）
+title 課題の因果（今の科学）
+
+skinparam defaultFontName "Noto Sans CJK JP"
+skinparam shadowing false
+skinparam nodesep 12
+skinparam ranksep 40
+skinparam roundCorner 8
+skinparam ArrowColor #888888
+skinparam packageStyle rectangle
+skinparam package {
+  BorderColor #AAAAAA
+  FontColor #555555
+  FontStyle normal
+}
+skinparam rectangle {
+  BorderColor #444444
+  BackgroundColor #FFFFFF
+}
+skinparam rectangleStereotypeFontColor #888888
+skinparam rectangleStereotypeFontSize 10
+
+package "評価と出版（§1 / §4 / §6）" {
+  rectangle "K-04 評価が引用数と\nジャーナル格付け" <<根>> as K04
+  rectangle "K-54 出版社の寡占\n（K-74〜76 利益構造）" <<根>> as K54
+  rectangle "K-01 論文が科学の最小単位\n（測定・仮説・再現は業績にならない）" <<根>> as K01
+  rectangle "K-02 論文になるまで\n途中が見えない" <<誘因と行動>> as K02
+  rectangle "K-03 出版バイアス\n否定的結果・捨てた仮説が残らない" <<誘因と行動>> as K03
+  rectangle "K-10 先取権が出版日で決まる" <<誘因と行動>> as K10
+  rectangle "K-07 HARKing / p-hacking の誘因" <<誘因と行動>> as K07
+  rectangle "K-87 捏造・改ざんの誘因\n（評価と資金の圧力、記録に不変性がない）" <<誘因と行動>> as K87
+  rectangle "K-14 / K-15 購読料と APC の壁" <<誘因と行動>> as K14
+  rectangle "K-32 査読が無報酬で過負荷" <<誘因と行動>> as K32
+  rectangle "K-36 / K-40 捕食誌・論文工場" <<誘因と行動>> as K40
+}
+
+package "記録と来歴（§3 / §5）" {
+  rectangle "K-21 記録が個人と\n紙に閉じる" <<根>> as K21
+  rectangle "K-46 クラウド AI に未発表データが\n出ていき、研究者が制御できない" <<誘因と行動>> as K46
+  rectangle "K-22 生データが\n論文に付かない" <<誘因と行動>> as K22
+  rectangle "K-23 来歴標準を\n手で書けない" <<誘因と行動>> as K23
+  rectangle "K-28 AI が入り、誰の主張か\n曖昧になる" <<誘因と行動>> as K28
+  rectangle "K-83 手順の暗黙知\nMethods に書かれない条件で再現できない" <<誘因と行動>> as K83
+  rectangle "K-31 改ざんを事後にしか\n検証できない" <<結果>> as K31
+  rectangle "K-60 暗黙知が本人と\n一緒に消える" <<結果>> as K60
+}
+
+package "資金・雇用と研究室（§6 / §7）" {
+  rectangle "K-53 / K-55 資金と雇用が\n論文実績と短期成果に紐づく" <<根>> as K53
+  rectangle "K-62 ラボの階層が\n異論を封じる" <<誘因と行動>> as K62
+  rectangle "K-56 / K-64 申請書と管理業務が\n考える時間を奪う" <<誘因と行動>> as K64
+  rectangle "K-94 雇用の不安\n契約更新が業績に直結し、失敗できない" <<誘因と行動>> as K94
+  rectangle "K-52 途中を共有すると\n先を越される恐怖" <<誘因と行動>> as K52
+  rectangle "K-61 代替仮説が\n検討されない" <<誘因と行動>> as K61
+  rectangle "K-63 研究の見通しが\n立たない不安" <<結果>> as K63
+  rectangle "K-92 若手の研究職離れ\n人材の再生産が止まる" <<結果>> as K92
+}
+
+package "参加の境界（§2）" {
+  rectangle "K-11 参加資格が\n機関所属で決まる" <<根>> as K11
+  rectangle "K-12 市民科学が\n作業の外注に留まる" <<誘因と行動>> as K12
+  rectangle "K-13 技術者・学生の\n貢献が消える" <<誘因と行動>> as K13
+  rectangle "K-18 途上国・小規模機関が\n解釈する側になれない" <<結果>> as K18
+  rectangle "K-19 一般人が「分かって\nいること / いないこと」を知れない" <<結果>> as K19
+}
+
+package "科学の信頼と社会（§4 / §6 / §8）" {
+  rectangle "K-33 再現性危機" <<結果>> as K33
+  rectangle "K-35 疑似科学が論文の\n形式を借りる" <<結果>> as K35
+  rectangle "K-41 メタ分析の過大評価" <<結果>> as K41
+  rectangle "K-91 重複研究と資源の浪費\n同じ研究と失敗が社会全体で繰り返される" <<結果>> as K91
+  rectangle "K-68 科学への信頼低下" <<結果>> as K68
+  rectangle "K-69 誤情報が科学の\n形式を借りて拡散" <<結果>> as K69
+  rectangle "K-93 科学の速度低下\n社会が科学から得る便益が遅れる" <<結果>> as K93
+}
+
+K01 --> K02
+K01 --> K03
+K04 --> K03
+K01 --> K10
+K10 ----> K52
+K53 --> K52
+K04 --> K07
+K53 ----> K07
+K53 --> K64
+K21 --> K23
+K64 ----> K23
+K21 --> K22
+K52 ----> K22
+K21 --> K28
+K62 --> K61
+K01 ----> K13
+K11 --> K13
+K11 --> K12
+K01 ----> K12
+K04 --> K32
+K54 --> K32
+K04 --> K40
+K54 --> K40
+K54 --> K14
+K03 ----> K41
+K03 ----> K33
+K07 ----> K33
+K22 ----> K33
+K32 ----> K33
+K40 ----> K35
+K32 ----> K35
+K21 --> K60
+K21 --> K31
+K28 --> K31
+K64 --> K63
+K61 --> K63
+K21 ----> K63
+K02 ----> K19
+K14 ----> K19
+K14 ----> K18
+K33 --> K68
+K35 --> K68
+K19 ----> K68
+K35 --> K69
+K04 --> K87
+K53 ----> K87
+K87 ----> K31
+K87 ----> K33
+K87 ----> K68
+K21 --> K83
+K83 ----> K33
+K46 ----> K63
+K46 --> K28
+K02 ----> K91
+K03 ----> K91
+K33 --> K91
+K53 --> K92
+K63 --> K92
+K64 --> K92
+K91 --> K93
+K92 ----> K93
+K33 --> K93
+K68 --> K93
+K40 --> K32
+K52 ----> K02
+K28 ----> K40
+K62 ----> K07
+K64 ----> K21
+K11 --> K18
+K53 --> K94
+K94 ----> K07
+K94 --> K52
+K94 --> K63
+K94 --> K92
+
+legend bottom left
+  <b>枠</b>: 課題のグループ（括弧内は docs/02 の節）
+  <b>ノードの層</b>: «根» 制度・経済の構造 / «誘因と行動» 研究者がそう振る舞う理由 / «結果» 社会と研究者が被る状態
+  <b>読み方</b>: 根から誘因、誘因から結果へ流れ、最下段の K-93（科学の速度低下）に合流する。
+  rescicle がどの矢印を断つかは after の図で示す。
+endlegend
+@enduml

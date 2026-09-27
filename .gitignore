@@ -11,3 +11,7 @@ debug-*.log
 .idea
 .DS_Store
 Thumbs.db
+
+# VitePress (docs/.vitepress)
+docs/.vitepress/dist/
+docs/.vitepress/cache/

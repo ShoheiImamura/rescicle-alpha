@@ -1,0 +1,102 @@
+.diagram {
+  margin: 16px 0;
+  padding: 12px;
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 8px;
+  /* PlantUML の SVG は背景が透明なものがあるので、ダークモードでも白地に置く */
+  background: #fff;
+  overflow: auto;
+}
+
+.diagram-caption {
+  margin-top: 8px;
+  text-align: center;
+  font-size: 13px;
+  color: #3c3c43;
+}
+
+.diagram img {
+  display: block;
+  max-width: 100%;
+  margin: 0 auto;
+  cursor: zoom-in;
+}
+
+/* 図のモーダル（theme/index.ts） */
+.diagram-viewer {
+  width: 100vw;
+  height: 100vh;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.diagram-viewer::backdrop {
+  background: rgba(0, 0, 0, 0.85);
+}
+.diagram-viewer[open] {
+  display: flex;
+  flex-direction: column;
+}
+.dv-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  color: #fff;
+  background: #18181b;
+}
+.dv-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+.dv-bar button {
+  padding: 4px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  border-radius: 6px;
+  color: #fff;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.dv-bar button:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+.dv-close {
+  font-size: 18px !important;
+}
+.dv-stage {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+  padding: 16px;
+}
+.dv-stage img {
+  margin: auto;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  background: #fff;
+  border-radius: 6px;
+  cursor: zoom-in;
+}
+.diagram-viewer.actual .dv-stage {
+  overflow: auto;
+  cursor: grab;
+}
+.diagram-viewer.actual .dv-stage:active {
+  cursor: grabbing;
+}
+.diagram-viewer.actual .dv-stage img {
+  max-width: none;
+  max-height: none;
+  cursor: zoom-out;
+  user-select: none;
+  -webkit-user-drag: none;
+}

@@ -1,0 +1,105 @@
+@startuml information-model-research
+' RDRA 情報モデル 1/2: 研究構造（kind と predicate）
+' 正: docs/05-data-model.md §2, §4（D-98 / D-100 / D-107 / D-108 / D-109）
+title 研究の構造（RRS の kind と predicate）
+
+skinparam defaultFontName "Noto Sans CJK JP"
+skinparam shadowing false
+skinparam roundCorner 6
+skinparam class {
+  BackgroundColor #FFFFFF
+  BorderColor #444444
+  ArrowColor #444444
+}
+skinparam ArrowFontSize 11
+hide empty members
+hide circle
+
+class "問い\n(Question)" as Question #E9F7EF
+class "仮説\n(Hypothesis)" as Hypothesis #E9F7EF
+class "予測\n(Prediction)" as Prediction #E9F7EF {
+  expected（仮説が正しければ）
+  親の仮説はちょうど 1 つ
+}
+class "プロトコル\n(Protocol)" as Protocol #E9F7EF {
+  予測を判定する手順（Plan）
+  observable · condition（文）
+  instrument · sample · conditions（計画）
+}
+class "測定 = run\n(Measurement)" as Measurement #E9F7EF {
+  プロトコルを 1 回走らせた Activity
+  execution_status: planned / in_progress /
+  completed / aborted
+  instrument · sample · conditions（実際）
+  予測の成否は持たない
+}
+class "変数\n(Variable)" as Variable #FEF9E7 {
+  条件の辞書（key · name · unit · aliases）
+  conditions のキーはここから
+  組み込みの候補表は初回使用で system
+}
+class "観測\n(Observation)" as Observation #E9F7EF {
+  Measurement から直接得た値・記述
+  system 抽出は confirmed
+}
+class "結果\n(Result)" as Result #E9F7EF {
+  解釈。Agent の推論はここ
+  based_on 必須
+}
+class "アセット\n(Asset)" as Asset #E9F7EF {
+  ファイル。identity = path
+  内容 = Revision（sha256）
+}
+class "メモ\n(Note)" as Note #FEF9E7 {
+  自由記述。作成時 confirmed
+  分からないこともここに書く
+}
+class "分析 (Analysis)\n<i>予約</i>" as Analysis #F4F6F7
+class "主張 (Assertion)\n<i>予約</i>" as Assertion #F4F6F7
+
+' 主系列（上から下へ）
+Question "1" <-- "0..*" Hypothesis : addresses
+Hypothesis "1" --> "0..*" Prediction : predicts
+Prediction "0..*" --> "0..*" Protocol : tested_by <判断的>
+Measurement "0..*" --> "1" Protocol : run_of
+Measurement "0..1" --> "0..*" Asset : generated（単体 register_asset は Measurement なし）
+Measurement "1" --> "0..*" Observation : generated
+Observation "0..*" --> "0..1" Asset : derived_from（口述は Asset なし）
+Observation "0..*" <-- "0..*" Result : based_on（Result 側は 1 件以上必須）
+Result "0..*" --> "0..1" Asset : derived_from
+
+' 条件（関係ではなく、conditions のキーで参照する）
+Protocol "0..*" ..> "0..*" Variable : conditions のキー
+Measurement "0..*" ..> "0..*" Variable : conditions のキー
+
+' 証拠的（判断的）。主語は観測か結果だけ
+Result "0..*" --> "0..*" Prediction : supports / contradicts <証拠的>
+Result "0..*" --> "0..*" Hypothesis : supports / contradicts <証拠的>
+Observation "0..*" --> "0..*" Prediction : supports / contradicts <証拠的>
+
+' 根拠
+Hypothesis "0..*" --> "0..*" Hypothesis : based_on
+Prediction "0..*" --> "0..*" Hypothesis : based_on
+
+' 補助
+Note "0..*" --> "0..1" Measurement : about（任意の kind）
+
+' 予約
+Analysis ..> Asset : used <i>予約</i>
+Analysis ..> Result : generated <i>予約</i>
+Result ..> Assertion : supports <i>予約</i>
+
+note as N1
+  <b>読み方</b>
+  すべての箱は RRS Record の kind であり、別の実体ではない（D-61）。
+  Evidence は kind ではなく supports / contradicts における役割（D-04）。
+  見分ける実験 = 複数の仮説の予測が同じプロトコルに tested_by で結ばれていること（D-100）。
+  run は「やったか」だけを持ち、予測の成否は観測・結果からの証拠で表す（D-108）。
+  <判断的> は両端 confirmed でも研究者の明示 confirm が要る。例外は無い。
+  それ以外は構造的で、両端 confirmed で自動 confirm。
+  origin=agent の Hypothesis / Prediction / Result は based_on が必須。
+  分からないことは Note に書き about で対象に付ける。不明点という kind は無い（D-109）。
+  欠けている文脈 = 測定ごとに記録すると決めた条件を書いていない run（導出値、D-107）。
+  多重度は 05 §4 の表に従う。alpha の範囲は 05 §9.4。
+end note
+@enduml

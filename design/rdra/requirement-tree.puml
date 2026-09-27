@@ -1,0 +1,65 @@
+@startwbs requirement-tree
+' 要求分析ツリー（匠メソッド）— 読むための木。rescicle alpha
+' 価値 V → 戦略要求 C（= 01 §15 のコンセプト 3 つ）→ 業務要求 Q → IT 要求 F。親は 1 つ、上から下へ読む。
+' Q / F / B の番号は requirement-model.puml と同じ。畳んだ Q は併記する。
+' 旧 S1〜S9 の扱い: S1・S5・S9 はゴールと指標として C1 の脇に、S2・S3 は C2 に、S4 は C3 に吸収。S6〜S8 は requirement-tree-future.puml。
+' 全部のつながり（トレース）は requirement-model.puml が正。この図は S を 3 本に絞り、Q ごとに主な F だけを置く。
+' F の末尾の [済] [一部] [未] は alpha の実装状態（Node 版の Milestone [M1]〜[M7] の代わり）。
+' 正: docs/01 §15、docs/10 §1 / §4、docs/04 §2、docs/05 §9、匠分析 §4〜5
+<style>
+wbsDiagram {
+  FontName "Noto Sans CJK JP"
+  FontSize 13
+  LineColor #7C878E
+  node {
+    Padding 8
+    RoundCorner 6
+    LineColor #7C878E
+    BackgroundColor #FFFFFF
+  }
+  :depth(0) { BackgroundColor #FFFFFF; LineColor #1F2A30; FontStyle bold; FontSize 14 }
+  :depth(1) { BackgroundColor #FFF8E1; LineColor #C9A227; FontStyle bold }
+  :depth(2) { BackgroundColor #FEF9E7; LineColor #C9A227 }
+  :depth(3) { BackgroundColor #EBF5FB; LineColor #1F618D; FontSize 12 }
+  :depth(4) { BackgroundColor #F4F6F7; LineColor #7C878E; FontSize 11 }
+}
+</style>
+title 価値から要求への分解（alpha）
+caption 上から下へ読む。黄 = 戦略要求 C（価値 V を実現するために企画側がやること。脇にゴール）/ 薄黄 = 業務要求 Q（アクターの言葉、[B] は匠の業務要求番号）/ 青 = IT 要求 F（[済] [一部] [未] は alpha の実装状態）。将来分は requirement-tree-future。全部のつながりは requirement-model
+
+* 研究そのものを記録しておけば、論文・共有・再現・査読は後から生成できる\n価値: V1 つながって見える / V2 次に測るものが決まる / V3・V5 後から辿れる / V4・V9 出ない安心
+** C1 会話が入力、マップが確認\n同じものを同じ名前で指す\n----\n価値: V1, V2 / 旧 S1・S5・S9\nゴール: 初回 15 分で研究構造が見える（10 §4 の 1〜5・7・8）\n4 週間の自発的な継続（04 §2 Go / No-Go）\n非機能: onboarding 15 分（値は Pilot で確定）
+*** Q1 [B1] 話すだけで問い・仮説・予測を\n整理してほしい。フォームに入力したくない
+****< F1 会話から問い / 仮説 / 予測 / 測定を operations で提案し、\nrescicle が検証して保存 [済]
+*** Q2 / Q3 [B4] 気づいていない別の説明と、\n仮説を区別できる予測・次に測るものを\n提案してほしい
+****< F2 代替仮説を origin=agent の提案中として出す\n（based_on は無い）[一部]
+****< F3 見分ける予測（判定式つき）と測定を組で提案\n（同じ測定に複数の予測、protocol は無い）[一部]
+****< F18 「次の一手」を 1 枚に [未]
+*** Q4 [B3] PC 内の計測データを\n仮説・予測の意味とつなげてほしい
+****< F4 研究フォルダのファイルを AI が挙げて読み（4KB）、\nデータとして登録し測定に produces で結ぶ\n（hash・統計・観測の抽出は無い）[一部]
+*** Q5 / Q19〜Q22 [B2, B15〜B18]\n今の状態を一目で見て確認・却下したい。\n画面は自分の言葉と同じ名前で、\n確認すべきものだけが見えてほしい
+****< F5 マップ / 一覧 / 検索。カードで確定・却下、\n線も 1 本ずつ。3 分間は戻せる [済]
+****< F16 ラベル（Q1 / H1 / P2）[未]
+****< F17 画面の語は日本語（確定 / 却下 / 研究オブジェクト）。\n語彙の機械検査は無い [一部]
+****< F19 確認カードは判断的関係だけ。\n構造的関係は自動で確定 [未]
+*** Q8 分からないことを\n勝手に埋めないでほしい
+****< F8 分からないことはオブジェクトの補足（note 列）に書く。\n閾値は AI が決めずに聞く [済]
+*** Q12 / Q13 [B8] 週 1 回の対話で前回の続きから\n始めたい。常時 AI のコストや通知で\n邪魔されたくない
+****< F13 次回の入口: 最後の研究を開き、\n会話は --resume で続く [済]
+****< F12 AI は送信時だけ動く（1 ターン 1 プロセス）。\n渡す量を制限 [済]
+** C2 記録は研究者の手元にあり、\n出るのは許した情報だけ。履歴は上書きされない\n----\n価値: V4, V9, V3, V5 / 旧 S2・S3\nゴール: 研究フォルダ非書き込みと許可ツールのテスト\n06 §2 の「安心」指標。空欄: 履歴を見返した回数
+*** Q9 [B5] 未公開データを許可なく\n端末の外へ出さないでほしい
+****< F9 AI の作業場所は研究フォルダではない。ツールは\nWebSearch / WebFetch だけ。ファイルの中身は read_files 経由だけで、\n読んだものは記録に残る。研究フォルダに書かない [済]
+*** Q17 [B12] どの情報がどの LLM に送られたかを\n情報セキュリティ担当に説明したい
+****< F15 設定画面の説明と「読み込み済み」の記録。\n説明パケットの書き出しは無い [一部]
+*** Q6 [B2] エージェントの提案と\n自分が確認したことを混ぜないでほしい
+****< F6 全オブジェクト / 関係に origin と status。\nAI 由来は必ず提案中で生まれ、確定・却下を覆せない（D-120）[済]
+*** Q7 / Q10 [B6, B14] 提案の根拠と仮説の履歴を\n後から辿りたい。実験前後の記録が区別でき、\n上書きされずに残ってほしい
+****< F7 提案の根拠を based_on と Revision pin で保持 [未]
+****< F10 不変 Revision + Event + Relation pin。\nTimeline を導出（D-110 で保留）[未]
+****< 耐改ざん証明・先取権は将来の署名 / 外部時刻証明（S3'）
+** C3 記録は閉じない\n開かれた仕様・標準への写像・ネットワーク\n----\n価値: V12, V8 / 旧 S4\nゴール: U-05。空欄: 他ツールで開けた事例
+*** Q11 [B7] いつでも自分のデータを\n持ち出せる
+****< F11 JSON エクスポート（1 研究の全テーブル）[済]\nRO-Crate は未（U-05）
+****< PROV-O / Nanopub / GakuNin RDM 写像は将来\n（requirement-tree-future）
+@endwbs

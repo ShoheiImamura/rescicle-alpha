@@ -1,0 +1,80 @@
+@startuml context-diagram
+' RDRA システム価値層: コンテキストモデル（alpha）
+' 正: docs/01-concept.md §1 / §5, docs/09-usecases.md, docs/07 D-111 / D-112 / D-119, docs/04-business.md §2
+title alpha と外部のやり取り
+
+skinparam defaultFontName "Noto Sans CJK JP"
+skinparam shadowing false
+skinparam roundCorner 8
+skinparam ArrowColor #444444
+skinparam actorStyle awesome
+skinparam rectangle {
+  BackgroundColor #FFFFFF
+  BorderColor #444444
+}
+skinparam component {
+  BorderColor #444444
+  ArrowColor #444444
+}
+skinparam componentStyle uml2
+skinparam note {
+  BackgroundColor #FFF8E1
+  BorderColor #C9A227
+}
+left to right direction
+
+' ===== 目的 =====
+note as purpose
+  <b>システムの目的（価値）</b>
+  研究者が研究について話し、研究フォルダのファイルを示すだけで、
+  問い・仮説・予測・測定・データのつながりが記録に残り、マップとして見える。
+  AI の提案と研究者の確定を混ぜない。研究フォルダには書かない。
+  会話とマップは同じ窓。AI は研究者本人の Claude Code。
+end note
+
+' ===== アクター =====
+actor "研究者\n（最初のユーザー）" as researcher #FDEBD0
+
+' ===== システム =====
+rectangle "<b>rescicle alpha</b>（Tauri デスクトップアプリ）\n----\n画面（WebView2: マップ / 一覧 / データ・ファイル / 会話欄）\nrescicle Core（Rust: 検証・書き込み・ファイル読み取り）\nSQLite（%AppData%\\rescicle\\rescicle.sqlite）\nstdio MCP サーバー（--mcp-server）" as system #D6EAF8
+
+' ===== 外部システム（alpha で接続）=====
+component "claude CLI\n（研究者がサインイン済み）" as agent #E8F8F5
+component "Anthropic\n（本人の契約）" as llm #FDFEFE
+component "Web\n（WebSearch / WebFetch）" as web #FDFEFE
+component "研究フォルダ\n（ローカルファイル）" as fs #E8F8F5
+component "Claude Code\n（研究者のターミナル）" as cc #E8F8F5
+
+' ===== 外部システム（将来）=====
+component "計測装置" as instrument #F4F6F7
+component "公開・保存基盤\nRO-Crate / Nanopub\nGakuNin RDM / OSF" as repo #F4F6F7
+component "識別子基盤\nORCID / DataCite" as pid #F4F6F7
+actor "ラボメンバー\n機関管理者" as others #F4F6F7
+
+' ===== 関係 =====
+researcher --> system : 話す / マップを見る\n確定・却下 / 線を引く・はずす\nデータを登録する
+system --> agent : 1 ターンごとに claude -p を起動（--resume）\n会話・研究オブジェクトの要約・ファイル名一覧\n（作業場所は研究フォルダではない）
+agent --> system : { reply, operations, read_files }\n→ Core が 1 件ずつ検証して書く
+agent ..> llm : 会話と context\n（研究者の契約・規約に従う）
+agent ..> web : 検索語と URL\n（許可ツールはこの 2 つだけ）
+system --> fs : ファイル一覧を読む\nAI が挙げたファイルの先頭 4KB を読む\n（書かない。読んだものは file_read に記録）
+fs --> system : ファイル
+cc --> system : MCP（研究コンテキストの読み取り\n提案の作成・引用付きの確定 / 却下\nデータ登録）
+researcher ..> cc : Claude Code から使うことも可
+
+' 将来
+instrument --> fs : 測定データを出力\n（rescicle との直接連携は将来）
+system ..> repo : Export（RO-Crate、将来。JSON は済み）\nSelective Publish（将来）
+system ..> pid : 公開時に識別子付与（将来）
+others ..> system : 共有・権限（Lab / Institution tier、将来）
+
+purpose .. system
+
+legend right
+  実線: alpha で接続する
+  点線: 将来、または制御外
+  <b>境界の注意</b>: 会話モードでは AI はファイルを触るツールを持たず、中身は Core が読んだ分だけ届く。
+  Claude Code から MCP で使うときは、Claude Code が Core を迂回してファイルや DB を読むことを防げない
+  （docs/01 §5）。
+endlegend
+@enduml

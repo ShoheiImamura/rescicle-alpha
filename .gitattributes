@@ -3,3 +3,6 @@
 # rewrite on checkout would silently change the prompt, so keep them as-is.
 src-tauri/src/agent_instructions.md -text
 src-tauri/src/response_schema.json -text
+
+# design/build.sh runs under bash (WSL). CRLF would break its shebang and set -e.
+*.sh text eol=lf

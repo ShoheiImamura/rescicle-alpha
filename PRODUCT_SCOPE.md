@@ -1,4 +1,6 @@
-# rescicle first-user scope — v0.0.8
+# rescicle first-user scope — v0.0.10
+
+The Japanese design documents are in `docs/` (index: `docs/README.md`); success criteria for the first researcher are in `docs/10-first-user.md`.
 
 ## Product hypothesis
 
@@ -6,7 +8,7 @@ After 10–30 minutes of ordinary conversation, a researcher can see their Quest
 
 ## Primary path
 
-`Install -> select research folder -> converse via the local Claude Code -> objects appear -> confirm/correct -> link local data`
+`Install -> say what you are researching -> converse via the local Claude Code -> objects appear -> confirm/correct -> choose the research folder -> link local data`
 
 No API key is required for the primary path.
 
@@ -19,4 +21,6 @@ Claude Code users can connect their existing Claude Code environment to rescicle
 - No raw-data auto upload. The agent is given names and metadata; contents reach it only for files it has named as needed, read by rescicle from inside the research folder, as an excerpt, and written down as a `file_read` event. Asking the researcher to approve each file up front was asked before anyone could know which files mattered, so what is owed is the record of what was read rather than a toll before reading.
 - The agent never receives the research folder as its working directory.
 - AI cannot write SQLite directly; only validated domain operations are applied.
-- Agent-generated scientific content starts as `proposed`.
+- Agent-generated scientific content starts as `proposed`, and the agent cannot overturn a decision the researcher has made (D-120).
+- A prediction must carry a `criterion`: what would decide it.
+- Nothing is written to the research folder; the record lives in `%AppData%\rescicle`.

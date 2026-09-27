@@ -1,0 +1,77 @@
+@startuml value-model
+' 匠メソッド: 価値分析モデル（左: 価値ストーリー → 右: 企画側の目的）+ 価値デザインモデル
+' 正: .review の匠メソッド分析 §2–3、docs/01 §2 / §13 / §14
+title 価値からコンセプトへ
+
+skinparam defaultFontName "Noto Sans CJK JP"
+skinparam shadowing false
+skinparam roundCorner 8
+skinparam ArrowColor #444444
+skinparam packageStyle rectangle
+skinparam rectangle {
+  BorderColor #444444
+}
+left to right direction
+
+package "価値デザインモデル（企画側の意思）" #FFF8E1 {
+  rectangle "<b>ビジョン</b>\n研究そのものを記録しておけば、\n論文・共有・再現・査読は後から生成できる世界" as vision
+  rectangle "<b>言葉</b>\n「研究について話してください。\nrescicle がその構造を整理します。」" as words
+  rectangle "<b>意味</b>\n人間と既存の科学インフラの間にエージェントを置き、\n研究者が意識せず標準を生成できるようにする" as meaning
+  rectangle "<b>コンセプト（3 つ）</b>\nC1 会話が入力、マップが確認（同じものを同じ名前で指す）\nC2 記録は研究者の手元にあり、出るのは許した情報だけ\nC3 記録は閉じない（開かれた仕様・標準への写像・ネットワーク）\n----\n吸収: エージェント中心→C1、不変リビジョン・Egress→C2、\n証拠は関係・公開標準・ネットワーク事業→C3" as concept
+  rectangle "<b>ストーリー</b>\n若手 PI が rescicle view で研究を話す → 15 分でマップ、CSV がつながる\n→ 4 週間後、次に測ることが決まり、研究ノートを開く回数が減る\n→ 学生が同じマップを見ながら相談に来る → 論文の骨子が履歴から出る\n→ 研究室の資産になる → 大学がデータ管理義務で採用 → 記録同士がつながる" as story
+}
+
+package "価値ストーリー（ステークホルダーが得る状態）" #FDEBD0 {
+  rectangle "<b>若手 PI</b>\nV1 話しているうちに問いと仮説と手元のデータが\nつながって見え、頭の中が整理される <i>情緒</i>" as V1
+  rectangle "<b>若手 PI</b>\nV2 思いつかなかった別の説明を提示され、\n次に何を測るべきかが決まる <i>機能+情緒</i>" as V2
+  rectangle "<b>若手 PI</b>\nV3「なぜこの仮説にしたか」が後から辿れ、\n論文執筆時に再構成しなくてよい <i>機能</i>" as V3
+  rectangle "<b>若手 PI</b>\nV4 rescicle を通る情報は許した範囲しか\n外に出ない、という安心 <i>情緒</i>\n（エージェント CLI の迂回は保証外）" as V4
+  rectangle "<b>若手 PI</b>\nV5 仮説を立てた日付と改訂の履歴が残り、\n後から辿れる <i>機能</i>\n（耐改ざん証明・先取権は将来の署名 / 外部時刻証明）" as V5
+  rectangle "<b>学生</b>\nV6 自分の研究の位置づけをマップで見て、\n指導を受けるとき説明しやすい <i>情緒</i>" as V6 #F4F6F7
+  rectangle "<b>指導教員</b>\nV7 学生の仮説と証拠の対応を見て、\n指導の焦点が絞れる <i>機能</i>" as V7 #F4F6F7
+  rectangle "<b>大学 研究推進</b>\nV8 データ管理義務に、研究者の負担を\n増やさず対応できる <i>機能</i>" as V8 #F4F6F7
+  rectangle "<b>情報セキュリティ担当</b>\nV9 どの情報がどの LLM に送られるかを\nProject 単位で説明できる <i>機能</i>" as V9
+  rectangle "<b>資金配分機関</b>\nV10 公的資金研究の記録が機械可読で残り、\n再現性の検証に使える <i>機能</i>" as V10 #F4F6F7
+  rectangle "<b>企業 R&D</b>\nV11 機密データを社外 LLM に出さずに\nエージェント支援を受けられる <i>機能</i>" as V11
+  rectangle "<b>RRS 実装者</b>\nV12 記録を他ツールと交換でき、\nネットワークに接続できる <i>機能</i>" as V12 #F4F6F7
+  rectangle "<b>Anthropic</b>\nV13 Claude Code の実利用例が\n研究分野に広がる <i>機能</i>\n（事業目的ではなく配布チャネル / 依存リスクの文脈）" as V13 #F4F6F7
+}
+
+package "企画側の目的" #D6EAF8 {
+  rectangle "P1 研究者が自分の研究を\n整理できる状態を作る（個人の実用）" as P1
+  rectangle "P2 研究記録が日常的に蓄積される" as P2
+  rectangle "P3 開かれた記録仕様（RRS）が使われる" as P3
+  rectangle "P4 研究室・機関・ネットワークの\nサービスで事業にする" as P4
+}
+
+V1 --> P1
+V2 --> P1
+V3 --> P2
+V4 --> P1
+V5 --> P2
+V5 --> P3
+V6 --> P1
+V6 --> P4
+V7 --> P4
+V8 --> P3
+V8 --> P4
+V9 --> P4
+V10 --> P3
+V11 --> P4
+V13 -[hidden]-> P4
+V12 --> P3
+
+vision --> meaning : 実現の方針
+meaning --> concept : 3 つに具体化
+concept --> words : 研究者への一言に
+concept --> story : 時間軸で語る
+vision -[hidden]-> V1
+
+legend right
+  灰色: alpha の主要ステークホルダーではない（Lab / Institution / Network 段階）。
+  <i>情緒</i> が継続利用（P2）を決める。04 §2 の 4 週間試用に情緒価値の測定
+  （不安の減少、見通しの実感、研究ノートを開く回数の変化）を加える（匠 §2.3）。
+  10 §4 の成功条件は「機能が動いた確認」であり、価値は本人の言葉で書く。
+  正本は docs/04 §7（V、P、ストーリー）と docs/01 §15（C1〜C3）。本図は図示（D-65）。
+endlegend
+@enduml

@@ -1,0 +1,31 @@
+@startwbs
+' 要求分析ツリー（匠メソッド）— 別紙: 将来（v0.2 以降）。requirement-tree.puml から外した枝だけを置く。
+' 番号は requirement-model.puml と同じ。正: docs/04 §2〜3、D-66
+<style>
+wbsDiagram {
+  FontName "Noto Sans CJK JP"
+  FontSize 13
+  LineColor #7C878E
+  node { Padding 8; RoundCorner 6; LineColor #7C878E; BackgroundColor #F4F6F7 }
+  :depth(0) { BackgroundColor #FFFFFF; LineColor #1F2A30; FontStyle bold; FontSize 14 }
+  :depth(1) { BackgroundColor #F4F6F7; LineColor #7C878E; FontStyle bold }
+  :depth(3) { FontSize 12 }
+}
+</style>
+title 将来に回した要求。灰 = alpha の範囲外
+caption 今の木（requirement-tree）から外した枝。判定は 04 §2 の Go / No-Go の後
+
+* 研究記録が研究室・機関・ネットワークの資産になる\n価値: V6, V7, V8, V10, V11 / 目的: P3, P4
+** S6 研究室単位で記録を共有できる\n価値: V6, V7 / ゴール: 空欄
+*** Q15 [B10] 学生と指導教員が\n同じマップを見て議論したい
+****< F14 共有・権限
+*** Q14 [B9] 論文を書くとき記録から\n骨子を作りたい（U-12）
+****< F14 記録からの生成（後回し、U-12）
+** S7 機関のデータ管理・研究公正の要件を満たす\n価値: V8, V10 / ゴール: 空欄
+*** Q16 [B11] データ管理計画の証跡として\n記録を使いたい
+****< F14 PROV-O / Nanopub / GakuNin RDM 写像
+****< F11 RO-Crate Export（JSON は alpha で済み、D-127）
+** S8 企業 R&D が機密データを社外 LLM に出さずに使える\nMode C、v0.2 の最初の機能（D-66）\n価値: V11 / ゴール: 04 §3 の pilot 1 社
+*** Q18 [B13] 機密データを社外 LLM に出さずに\nエージェント支援を受けたい
+****< F14 Mode C（ローカル / 社内 LLM への切替）
+@endwbs
