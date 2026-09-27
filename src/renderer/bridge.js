@@ -49,7 +49,12 @@ window.rescicle = {
   // Fires repeatedly while a turn runs, each time with the whole reply so far.
   onReply: handler =>
     window.__TAURI__.event.listen('agent:reply', event => handler(event.payload)),
+  // Something other than this window -- Claude Code, over MCP -- wrote to the record.
+  onRecordChanged: handler =>
+    window.__TAURI__.event.listen('record:changed', () => handler()),
   clearRecord: () => call('record_clear'),
+  // Resolves to the saved path, or null when the dialog was closed.
+  exportRecord: projectId => call('record_export', { projectId }),
   claudeMcpStatus: () => call('claude_mcp_status'),
   claudeMcpRegister: () => call('claude_mcp_register'),
   copyClaudeSetup: () => call('claude_copy_setup')

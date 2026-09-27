@@ -348,6 +348,11 @@ button.project-title:hover { background: #eeede9; }
 .map-node { cursor: pointer; }
 .map-node rect { fill: #fff; stroke: #c5c4bc; }
 .map-node.proposed rect { stroke-dasharray: 4 3; }
+/* Settled is drawn heavier than proposed, not only unbroken. A dash is easy to
+   miss on a small box; weight reads across the whole map at once, so what the
+   researcher has decided stands out from what is still being offered. */
+.map-node.confirmed rect { stroke: #6f6e67; stroke-width: 1.5; }
+.map-node.proposed .map-title { fill: #57564f; }
 .map-node:hover rect { stroke: #8d8c84; }
 /* Still on the map only because something live hangs off it, so it is drawn as
    a held-open door rather than as part of the work: faded, and the title with

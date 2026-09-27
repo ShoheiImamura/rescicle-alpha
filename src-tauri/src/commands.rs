@@ -493,6 +493,73 @@ pub fn record_clear(state: State<'_, AppState>) -> Result<Value> {
     Ok(json!({ "removed": removed }))
 }
 
+// One research, written out whole as JSON to wherever the researcher says.
+// The dialog opens on Documents rather than the research folder: rescicle does
+// not write there, and the researcher putting it there is a choice they make,
+// not a default they fall into. None means the dialog was closed.
+#[tauri::command]
+pub async fn record_export(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    project_id: String,
+) -> Result<Option<String>> {
+    let (export, name) = {
+        let db = lock(&state.db)?;
+        let export = db.export_project(&project_id)?;
+        let name = export["project"]["name"].as_str().unwrap_or("research").to_string();
+        (export, name)
+    };
+    // Characters Windows refuses in a file name, which a research title can
+    // easily contain -- 「A/B 比較」 is a title and not a path.
+    let safe: String = name
+        .chars()
+        .map(|c| if r#"\/:*?"<>|"#.contains(c) { '_' } else { c })
+        .collect();
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    let mut dialog = app
+        .dialog()
+        .file()
+        .add_filter("JSON", &["json"])
+        .set_file_name(format!("{safe}.rescicle.json"));
+    if let Some(documents) = dirs::document_dir() {
+        dialog = dialog.set_directory(documents);
+    }
+    dialog.save_file(move |picked| {
+        let _ = tx.send(picked);
+    });
+    let picked = rx
+        .await
+        .map_err(|_| Error("保存先の選択が中断されました".into()))?;
+    let Some(path) = picked.and_then(|p| p.into_path().ok()) else {
+        return Ok(None);
+    };
+    std::fs::write(&path, serde_json::to_string_pretty(&export)?)?;
+    Ok(Some(path.to_string_lossy().into_owned()))
+}
+
+// The MCP server is another process writing the same database, and nothing
+// told the window when it did: what Claude Code wrote appeared on the next
+// press of anything, which read as the press having done it. data_version
+// moves only for commits from other connections, so polling it once a second
+// is cheap and says exactly "something you did not do has landed".
+pub fn watch_other_writers(app: AppHandle) {
+    use tauri::Manager;
+    std::thread::spawn(move || {
+        let mut seen: Option<i64> = None;
+        loop {
+            std::thread::sleep(std::time::Duration::from_secs(1));
+            let state = app.state::<AppState>();
+            let Ok(db) = state.db.lock() else { return };
+            let Ok(version) = db.data_version() else { continue };
+            drop(db);
+            if seen.is_some_and(|before| before != version) {
+                let _ = app.emit("record:changed", ());
+            }
+            seen = Some(version);
+        }
+    });
+}
+
 #[tauri::command]
 pub async fn claude_mcp_status(state: State<'_, AppState>) -> Result<Value> {
     Ok(state.agent.mcp_status(&rescicle_exe()).await)

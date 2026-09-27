@@ -100,6 +100,52 @@ fn mcp_tools() {
     // Anything the MCP client proposes stays proposed until the researcher decides.
     assert_eq!(h["status"], Value::String("proposed".into()));
 
+    // Deciding needs the researcher's words; without them it is the agent
+    // confirming its own proposal in their name.
+    assert!(call_tool(
+        &db,
+        data_dir,
+        "set_object_status",
+        &json!({ "objectId": h["id"], "status": "confirmed", "statement": "  " }),
+    )
+    .is_err());
+    let confirmed = call_tool(
+        &db,
+        data_dir,
+        "set_object_status",
+        &json!({ "objectId": h["id"], "status": "confirmed", "statement": "それで確定して" }),
+    )
+    .unwrap();
+    assert_eq!(confirmed["status"], Value::String("confirmed".into()));
+    // And once decided, it is not this path's to undo.
+    assert!(call_tool(
+        &db,
+        data_dir,
+        "set_object_status",
+        &json!({ "objectId": h["id"], "status": "rejected", "statement": "やっぱり消して" }),
+    )
+    .is_err());
+    let context = call_tool(&db, data_dir, "get_research_context", &json!({})).unwrap();
+    let said = context["recentEvents"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|e| e["action"] == "object_confirmed")
+        .expect("the decision is in the log");
+    assert_eq!(said["detail"]["statement"], "それで確定して");
+    // Reads are logged, and kept out of what the agent is shown.
+    assert!(context["recentEvents"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|e| e["action"] != "mcp_read"));
+    let export = db.export_project(&project_id).unwrap();
+    assert!(export["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|e| e["action"] == "mcp_read"));
+
     assert!(call_tool(&db, data_dir, "no_such_tool", &json!({})).is_err());
 
     // Nothing open means the server says so instead of guessing a project.

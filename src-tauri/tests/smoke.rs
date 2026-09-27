@@ -192,13 +192,8 @@ fn smoke() {
         PathBuf::from(str_of(&rerooted, "root_path")),
         rescicle_lib::files::resolve(&moved)
     );
-    assert_eq!(
-        missing,
-        vec![Path::new("nested")
-            .join("25K.csv")
-            .to_string_lossy()
-            .into_owned()]
-    );
+    // Stored with `/` whatever the OS, so the record reads the same anywhere.
+    assert_eq!(missing, vec!["nested/25K.csv".to_string()]);
     assert!(db
         .set_project_root(&project_id, research.to_str().unwrap(), "researcher")
         .unwrap()
@@ -894,4 +889,186 @@ fn an_archived_object_is_kept_where_a_rejected_one_is_deleted() {
         str_of(&db.get_object(&kept).unwrap().unwrap(), "status"),
         "confirmed"
     );
+}
+
+// The agent relays the researcher's word and nothing more. Its own ideas are
+// born proposed whatever it asks for, and it cannot undo a decision the
+// researcher made on screen -- above all it cannot reject something settled,
+// because a rejection is deleted a few minutes later.
+#[test]
+fn the_agent_cannot_settle_its_own_ideas_or_undo_the_researchers() {
+    let tmp = TempDir::new("relay");
+    let research = tmp.path().join("research");
+    std::fs::create_dir_all(&research).unwrap();
+    let db = Db::open(&tmp.path().join("rescicle.sqlite")).unwrap();
+    let project_id = str_of(
+        &db.create_project("relay", research.to_str().unwrap()).unwrap(),
+        "id",
+    );
+    let settled = str_of(
+        &db.create_object(&project_id, &object("question", "Q", "researcher", "confirmed"), "researcher").unwrap(),
+        "id",
+    );
+
+    let applied = apply_operations(
+        &db,
+        &research,
+        &project_id,
+        &[
+            Operation {
+                ref_: Some("h".into()),
+                object_type: Some("hypothesis".into()),
+                title: Some("the agent's own idea".into()),
+                origin: Some("agent".into()),
+                status: Some("confirmed".into()),
+                ..op("create_object")
+            },
+            Operation {
+                id: Some(settled.clone()),
+                status: Some("rejected".into()),
+                ..op("set_status")
+            },
+        ],
+    );
+    assert_eq!(applied[0]["ok"], Value::Bool(true), "{applied:?}");
+    let born = db.get_object(applied[0]["id"].as_str().unwrap()).unwrap().unwrap();
+    assert_eq!(str_of(&born, "status"), "proposed");
+    assert_eq!(applied[1]["ok"], Value::Bool(false), "{applied:?}");
+    assert_eq!(
+        str_of(&db.get_object(&settled).unwrap().unwrap(), "status"),
+        "confirmed"
+    );
+
+    // Settling a proposal on the researcher's word is what it is for.
+    let settled_now = apply_operations(
+        &db,
+        &research,
+        &project_id,
+        &[Operation {
+            id: Some(str_of(&born, "id")),
+            status: Some("confirmed".into()),
+            ..op("set_status")
+        }],
+    );
+    assert_eq!(settled_now[0]["ok"], Value::Bool(true), "{settled_now:?}");
+
+    // And the agent sees what just happened.
+    let context = db.context(&project_id, None).unwrap();
+    let recent = context["recentEvents"].as_array().unwrap();
+    assert_eq!(recent[0]["action"], "object_confirmed");
+    assert_eq!(recent[0]["actor"], "researcher-via-agent");
+    assert_eq!(recent[0]["detail"]["from"], "proposed");
+}
+
+// A path is stored with `/`, the same file registered twice is one asset, and
+// a file the researcher un-registered comes back when they register it again.
+#[test]
+fn an_asset_path_is_one_file_in_one_research() {
+    let tmp = TempDir::new("asset-path");
+    let research = tmp.path().join("research");
+    std::fs::create_dir_all(research.join("runs")).unwrap();
+    std::fs::write(research.join("runs").join("a.csv"), "x\n1\n").unwrap();
+    let db = Db::open(&tmp.path().join("rescicle.sqlite")).unwrap();
+    let project_id = str_of(
+        &db.create_project("asset-path", research.to_str().unwrap()).unwrap(),
+        "id",
+    );
+    let file = research.join("runs").join("a.csv");
+    let first = db.register_asset(&project_id, &file, "researcher").unwrap();
+    assert_eq!(first["asset"]["relative_path"], "runs/a.csv");
+    let again = db.register_asset(&project_id, &file, "researcher").unwrap();
+    assert_eq!(first["id"], again["id"]);
+
+    db.update_object_status(&str_of(&first, "id"), "rejected", "researcher").unwrap();
+    // The agent may not bring back what the researcher threw away...
+    assert!(db.register_asset(&project_id, &file, "agent").is_err());
+    // ...and the researcher asking again is asking for it back.
+    let back = db.register_asset(&project_id, &file, "researcher").unwrap();
+    assert_eq!(str_of(&back, "status"), "confirmed");
+    assert_eq!(db.list_objects(&project_id, Some("asset")).unwrap().len(), 1);
+}
+
+// Databases written before paths were `/` are brought across on open, along
+// with the file_read log the files screen matches them against.
+#[test]
+fn backslash_paths_from_an_older_database_are_rewritten() {
+    let tmp = TempDir::new("asset-migrate");
+    let research = tmp.path().join("research");
+    std::fs::create_dir_all(&research).unwrap();
+    let path = tmp.path().join("rescicle.sqlite");
+    let project_id = {
+        let db = Db::open(&path).unwrap();
+        let project_id = str_of(
+            &db.create_project("old", research.to_str().unwrap()).unwrap(),
+            "id",
+        );
+        db.log_file_read(&project_id, r"runs\a.csv", "agent").unwrap();
+        project_id
+    };
+    {
+        let conn = rusqlite::Connection::open(&path).unwrap();
+        conn.execute(
+            "INSERT INTO objects(id,project_id,type,title,origin,status,created_at,updated_at)
+             VALUES('asse_1',?1,'asset','a.csv','researcher','confirmed','t','t')",
+            [&project_id],
+        )
+        .unwrap();
+        conn.execute(
+            r"INSERT INTO assets(object_id,relative_path,size_bytes,modified_at) VALUES('asse_1','runs\a.csv',1,'t')",
+            [],
+        )
+        .unwrap();
+        conn.execute("UPDATE assets SET project_id=NULL", []).unwrap();
+    }
+    let db = Db::open(&path).unwrap();
+    let paths = db.asset_paths(&project_id).unwrap();
+    assert_eq!(paths[0]["relative_path"], "runs/a.csv");
+    let log = db.file_read_log(&project_id).unwrap();
+    assert!(log[0]["detail_json"].as_str().unwrap().contains("runs/a.csv"));
+}
+
+// Writing it out takes everything about the one research and nothing else.
+#[test]
+fn an_export_is_the_whole_of_one_research() {
+    let tmp = TempDir::new("export");
+    let research = tmp.path().join("research");
+    std::fs::create_dir_all(&research).unwrap();
+    let db = Db::open(&tmp.path().join("rescicle.sqlite")).unwrap();
+    let mine = str_of(&db.create_project("mine", research.to_str().unwrap()).unwrap(), "id");
+    let other = str_of(&db.create_project("other", research.to_str().unwrap()).unwrap(), "id");
+    db.create_object(&mine, &object("prediction", "P", "researcher", "confirmed"), "researcher").unwrap();
+    db.create_object(&other, &object("question", "elsewhere", "researcher", "confirmed"), "researcher").unwrap();
+    db.save_message(&mine, "user", "hello").unwrap();
+
+    let export = db.export_project(&mine).unwrap();
+    assert_eq!(export["project"]["name"], "mine");
+    assert_eq!(export["objects"].as_array().unwrap().len(), 1);
+    assert_eq!(export["messages"].as_array().unwrap().len(), 1);
+    assert!(!export["events"].as_array().unwrap().is_empty());
+}
+
+// A proposal can be put away as well, and comes back as a proposal: taking it
+// out of the archive must not turn it into a decision nobody made.
+#[test]
+fn an_archived_object_remembers_what_it_was() {
+    let tmp = TempDir::new("archive-from");
+    let research = tmp.path().join("research");
+    std::fs::create_dir_all(&research).unwrap();
+    let db = Db::open(&tmp.path().join("rescicle.sqlite")).unwrap();
+    let project_id = str_of(
+        &db.create_project("archive-from", research.to_str().unwrap()).unwrap(),
+        "id",
+    );
+    let open = str_of(
+        &db.create_object(&project_id, &object("hypothesis", "保留", "agent", "proposed"), "agent").unwrap(),
+        "id",
+    );
+    let settled = str_of(
+        &db.create_object(&project_id, &object("hypothesis", "済み", "researcher", "confirmed"), "researcher").unwrap(),
+        "id",
+    );
+    db.update_object_status(&open, "archived", "researcher").unwrap();
+    db.update_object_status(&settled, "archived", "researcher").unwrap();
+    assert_eq!(db.get_object(&open).unwrap().unwrap()["archived_from"], "proposed");
+    assert_eq!(db.get_object(&settled).unwrap().unwrap()["archived_from"], "confirmed");
 }

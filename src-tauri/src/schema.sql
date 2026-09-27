@@ -61,8 +61,9 @@ CREATE TABLE IF NOT EXISTS assets (
   FOREIGN KEY (object_id) REFERENCES objects(id) ON DELETE CASCADE
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS idx_assets_project_path
-ON assets(relative_path, object_id);
+-- relative_path is `/`-separated, and it is unique within a project: the
+-- project_id column and the index on (project_id, relative_path) are added by
+-- Db::migrate_asset_paths, which also has to bring older databases across.
 
 -- Whether a measurement has actually been run, and when. This is a second
 -- axis, not another status: status says whether the researcher has decided to

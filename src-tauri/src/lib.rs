@@ -31,6 +31,7 @@ pub fn run() {
         .setup(|app| {
             let state = commands::init_state(&app.handle())?;
             app.manage(state);
+            commands::watch_other_writers(app.handle().clone());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -55,6 +56,7 @@ pub fn run() {
             commands::agent_refresh,
             commands::agent_send,
             commands::record_clear,
+            commands::record_export,
             commands::claude_mcp_status,
             commands::claude_mcp_register,
             commands::claude_copy_setup,

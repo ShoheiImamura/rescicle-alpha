@@ -41,11 +41,12 @@ fn tools() -> Value {
         },
         {
             "name": "set_object_status",
-            "description": "Confirm or reject a rescicle research object when the researcher explicitly decides.",
+            "description": "Record the researcher's decision on a proposed research object: confirm it, reject it, or archive it once they are done with it. Only when the researcher has said so in this conversation; quote what they said in `statement`. A decision the researcher already made (a confirmed or rejected object) cannot be reversed from here -- they change it on the rescicle screen.",
             "inputSchema": { "type": "object", "properties": {
                 "objectId": { "type": "string" },
-                "status": { "type": "string", "enum": ["proposed","confirmed","rejected"] }
-            }, "required": ["objectId","status"], "additionalProperties": false }
+                "status": { "type": "string", "enum": ["confirmed","rejected","archived"] },
+                "statement": { "type": "string", "description": "The researcher's own words that decided this, quoted." }
+            }, "required": ["objectId","status","statement"], "additionalProperties": false }
         },
         {
             "name": "set_measurement_performed",
@@ -96,7 +97,10 @@ pub fn call_tool(db: &Db, data_dir: &Path, name: &str, args: &Value) -> Result<V
     let root = Path::new(&root);
 
     match name {
-        "get_research_context" => db.context(&project_id, None),
+        "get_research_context" => {
+            db.log_mcp_read(&project_id, name)?;
+            db.context(&project_id, None)
+        }
         "create_object" => db.create_object(
             &project_id,
             &ObjectInput {
@@ -142,11 +146,21 @@ pub fn call_tool(db: &Db, data_dir: &Path, name: &str, args: &Value) -> Result<V
                 "agent-via-mcp"
             },
         ),
-        "set_object_status" => db.update_object_status(
-            &arg_str(args, "objectId"),
-            &arg_str(args, "status"),
-            "researcher-via-mcp",
-        ),
+        // The researcher is not on this path to ask, so their words are the
+        // only thing that makes it their decision. Without them this was an
+        // agent confirming its own proposals and signing the researcher's name.
+        "set_object_status" => {
+            let statement = arg_str(args, "statement");
+            if statement.trim().is_empty() {
+                return err("statement is required: quote what the researcher said that decided this.");
+            }
+            db.update_object_status_said(
+                &arg_str(args, "objectId"),
+                &arg_str(args, "status"),
+                "researcher-via-mcp",
+                Some(&statement),
+            )
+        }
         "set_measurement_performed" => db.set_measurement_performed(
             &arg_str(args, "objectId"),
             args.get("performed").and_then(Value::as_bool).unwrap_or(false),
@@ -155,6 +169,7 @@ pub fn call_tool(db: &Db, data_dir: &Path, name: &str, args: &Value) -> Result<V
         ),
         "list_project_files" => {
             let limit = args.get("limit").and_then(Value::as_u64).unwrap_or(120);
+            db.log_mcp_read(&project_id, name)?;
             Ok(json!(scan_files(root, limit.min(300) as usize)))
         }
         "register_asset" => {
@@ -163,6 +178,24 @@ pub fn call_tool(db: &Db, data_dir: &Path, name: &str, args: &Value) -> Result<V
         }
         other => err(format!("Unknown tool: {other}")),
     }
+}
+
+// The same rules the conversation agent is given, so that Claude Code writing
+// over MCP is held to what a hypothesis and a prediction are exactly as the
+// in-app agent is. It had one sentence of its own before, and the record it
+// wrote read like it: predictions with no criterion to speak of, and the
+// agent's own ideas filed as the researcher's.
+pub fn mcp_instructions() -> String {
+    format!(
+        "You are reaching rescicle over MCP. The rules below are the ones rescicle's own \
+         conversation agent follows, and they apply to you. Where they name an operation \
+         of that agent's JSON output (read_files, set_note, set_performed, set_criterion, \
+         set_status), use the tool here that does the same thing; where there is none, tell \
+         the researcher so rather than working around it. Anything you create is proposed. \
+         set_object_status needs the researcher's own words in `statement`. The rules about \
+         files and tools at the end describe that agent's sandbox; yours are Claude Code's.\n\n{}",
+        crate::agent::AGENT_INSTRUCTIONS
+    )
 }
 
 fn text_result(value: &Value) -> Value {
@@ -197,7 +230,7 @@ pub fn run_stdio() -> Result<()> {
                         .and_then(Value::as_str).unwrap_or("2025-11-25"),
                     "capabilities": { "tools": {} },
                     "serverInfo": { "name": "rescicle", "version": env!("CARGO_PKG_VERSION") },
-                    "instructions": "Use rescicle tools to read and propose changes to the current research project. Keep agent-generated scientific objects proposed unless the researcher explicitly confirms them."
+                    "instructions": mcp_instructions()
                 }
             }),
             "tools/list" => json!({ "jsonrpc": "2.0", "id": id, "result": { "tools": tools() } }),

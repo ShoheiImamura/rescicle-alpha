@@ -241,6 +241,18 @@ fn actor_for(origin: Option<&String>) -> &'static str {
     }
 }
 
+// What the agent thought of itself is a proposal, whatever status it asked
+// for. Only a statement of the researcher's own (origin=researcher) can be
+// written down as already decided: the agent's idea becomes 確定 when the
+// researcher says so, and that is a set_status, which leaves its own event.
+fn birth_status(origin: Option<&String>, asked: Option<&String>) -> String {
+    if origin.map(String::as_str) == Some("researcher") {
+        asked.cloned().unwrap_or_else(|| "proposed".into())
+    } else {
+        "proposed".into()
+    }
+}
+
 // A model may name an object it created earlier in the same turn, before that object
 // has a database id. Those placeholders arrive as `ref` on the creating operation and
 // are substituted here.
@@ -265,31 +277,32 @@ pub fn apply_operations(
         // Each arm yields the record the renderer shows, plus the id to publish under
         // this operation's `ref` when it created something.
         let outcome: Result<(Value, Option<String>)> = match op.op.as_str() {
-            "create_object" => db
-                .create_object(
+            "create_object" => db.atomic(|| {
+                let created = db.create_object(
                     project_id,
                     &ObjectInput {
                         type_: op.object_type.clone().unwrap_or_default(),
                         title: op.title.clone().unwrap_or_else(|| "Untitled".into()),
                         body: op.body.clone(),
                         origin: op.origin.clone().unwrap_or_else(|| "agent".into()),
-                        status: op.status.clone().unwrap_or_else(|| "proposed".into()),
+                        status: birth_status(op.origin.as_ref(), op.status.as_ref()),
                         criterion: op.criterion.clone(),
                         criterion_note: op.criterion_note.clone(),
                         symbols: op.symbols.clone(),
                     },
                     actor_for(op.origin.as_ref()),
-                )
-                .and_then(|created| {
-                    let id = created["id"].as_str().unwrap_or_default().to_string();
-                    // A remark given at the same time as the object it is about.
-                    // It is a column on that row, so there is nothing to create
-                    // and nothing to join -- it is written straight on.
-                    if let Some(note) = op.note.as_deref().filter(|n| !n.trim().is_empty()) {
-                        db.set_object_note(&id, note, actor_for(op.origin.as_ref()))?;
-                    }
-                    Ok((json!({ "ok": true, "op": op.op, "id": id }), Some(id)))
-                }),
+                )?;
+                let id = created["id"].as_str().unwrap_or_default().to_string();
+                // A remark given at the same time as the object it is about.
+                // It is a column on that row, so there is nothing to create
+                // and nothing to join -- it is written straight on, and in the
+                // same transaction, so a refused note does not leave the object
+                // behind without it.
+                if let Some(note) = op.note.as_deref().filter(|n| !n.trim().is_empty()) {
+                    db.set_object_note(&id, note, actor_for(op.origin.as_ref()))?;
+                }
+                Ok((json!({ "ok": true, "op": op.op, "id": id }), Some(id)))
+            }),
             // For a prediction written before criteria existed, or one whose
             // criterion turns out not to decide anything.
             "set_criterion" => {
@@ -328,7 +341,7 @@ pub fn apply_operations(
                         predicate: op.predicate.clone().unwrap_or_default(),
                         object_id,
                         origin: op.origin.clone().unwrap_or_else(|| "agent".into()),
-                        status: op.status.clone().unwrap_or_else(|| "proposed".into()),
+                        status: birth_status(op.origin.as_ref(), op.status.as_ref()),
                     },
                     actor_for(op.origin.as_ref()),
                 )

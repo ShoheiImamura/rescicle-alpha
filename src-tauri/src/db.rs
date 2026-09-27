@@ -1,15 +1,19 @@
 use crate::domain::{
-    allowed_relation, validate_object_input, validate_relation_input, validate_symbols, ObjectInput,
-    RelationInput, SymbolInput,
+    allowed_relation, validate_object_input, validate_relation_input, validate_symbols,
+    ObjectInput, RelationInput, SymbolInput,
 };
 use crate::error::{err, Error, Result};
 use crate::files::{iso, resolve};
 use rusqlite::{params, Connection, Row};
 use serde_json::{json, Map, Value};
+use std::cell::Cell;
 use std::path::Path;
 
 pub struct Db {
     conn: Connection,
+    // How deep inside atomic() this connection is. Only the outermost call
+    // opens a transaction; the ones inside it are savepoints.
+    depth: Cell<u32>,
 }
 
 fn new_id(prefix: &str) -> String {
@@ -69,10 +73,103 @@ impl Db {
         // fsync per INSERT. NORMAL under WAL can lose the most recent commits on a
         // power cut but never corrupts the file, and it makes writes ~15x cheaper.
         conn.pragma_update(None, "synchronous", "NORMAL")?;
-        let db = Self { conn };
+        let db = Self {
+            conn,
+            depth: Cell::new(0),
+        };
         db.migrate_notes_onto_objects()?;
         db.add_criterion_columns()?;
+        db.migrate_asset_paths()?;
         Ok(db)
+    }
+
+    // One write the researcher sees as one thing -- an object and its symbols
+    // and the event saying so, a file and the object it became -- either happens
+    // whole or not at all. Without it a failure halfway left a prediction with
+    // no symbols, or an asset object with no asset row, and nothing on screen
+    // could say which half was there.
+    //
+    // The outermost call takes the write lock up front (IMMEDIATE), because the
+    // MCP server is a second process writing the same file: a transaction that
+    // read first and asked to write later would be refused rather than made to
+    // wait. Calls inside it -- register_asset calls create_object -- nest as
+    // savepoints, so each is still whole on its own terms.
+    pub fn atomic<T>(&self, work: impl FnOnce() -> Result<T>) -> Result<T> {
+        let depth = self.depth.get();
+        let (begin, done, undo) = if depth == 0 {
+            ("BEGIN IMMEDIATE", "COMMIT", "ROLLBACK")
+        } else {
+            (
+                "SAVEPOINT nested",
+                "RELEASE nested",
+                "ROLLBACK TO nested; RELEASE nested",
+            )
+        };
+        self.conn.execute_batch(begin)?;
+        self.depth.set(depth + 1);
+        let outcome = work();
+        self.depth.set(depth);
+        match outcome {
+            Ok(value) => match self.conn.execute_batch(done) {
+                Ok(()) => Ok(value),
+                // A commit that failed leaves the transaction open, and every
+                // later BEGIN on this connection would then fail too.
+                Err(error) => {
+                    let _ = self.conn.execute_batch(undo);
+                    Err(error.into())
+                }
+            },
+            Err(error) => {
+                let _ = self.conn.execute_batch(undo);
+                Err(error)
+            }
+        }
+    }
+
+    // Changes whenever another connection -- the MCP server -- commits to this
+    // file, and never for this connection's own writes. That is exactly the
+    // question the window needs answered: has something it did not do landed?
+    pub fn data_version(&self) -> Result<i64> {
+        Ok(self
+            .conn
+            .query_row("PRAGMA data_version", [], |row| row.get(0))?)
+    }
+
+    // Asset paths were written with the OS separator, so a record made on
+    // Windows said `data\run1.csv` and could not be read anywhere else. They are
+    // `/` now (files::slash), and the ones already written are brought across,
+    // along with the file_read log that the files screen matches them against.
+    //
+    // And the path is unique per research now, which the old index never
+    // enforced: it was on (relative_path, object_id), and object_id is already
+    // the key, so every pair was unique. assets had no project to scope a path
+    // by, so it gets one. Two rows for one file cannot be merged here without
+    // deciding which object wins, so if an old database already has them the
+    // index is left off and register_asset's own lookup keeps it from getting
+    // worse.
+    fn migrate_asset_paths(&self) -> Result<()> {
+        let has_project = self
+            .conn
+            .prepare("SELECT 1 FROM pragma_table_info('assets') WHERE name='project_id'")?
+            .exists([])?;
+        if !has_project {
+            self.conn
+                .execute("ALTER TABLE assets ADD COLUMN project_id TEXT", [])?;
+        }
+        self.conn.execute_batch(
+            r"UPDATE assets SET project_id=(SELECT project_id FROM objects WHERE objects.id=assets.object_id)
+               WHERE project_id IS NULL;
+             UPDATE assets SET relative_path=replace(relative_path, '\', '/')
+               WHERE instr(relative_path, '\') > 0;
+             UPDATE events SET detail_json=replace(detail_json, '\\', '/')
+               WHERE action='file_read' AND instr(detail_json, '\\') > 0;
+             DROP INDEX IF EXISTS idx_assets_project_path;",
+        )?;
+        let _ = self.conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_assets_path_in_project ON assets(project_id, relative_path)",
+            [],
+        );
+        Ok(())
     }
 
     // What would decide a prediction. Columns on the object row rather than a
@@ -152,7 +249,8 @@ impl Db {
             )?;
         }
         if !notes.is_empty() {
-            self.conn.execute("DELETE FROM objects WHERE type='note'", [])?;
+            self.conn
+                .execute("DELETE FROM objects WHERE type='note'", [])?;
         }
         Ok(())
     }
@@ -231,28 +329,30 @@ impl Db {
     }
 
     pub fn rename_project(&self, project_id: &str, name: &str, actor: &str) -> Result<Value> {
-        let project = self.require_project(project_id)?;
-        let next = name.trim();
-        if next.is_empty() {
-            return err("project name is required");
-        }
-        let previous = text(&project, "name");
-        if next == previous {
-            return Ok(project);
-        }
-        self.conn.execute(
-            "UPDATE projects SET name=? WHERE id=?",
-            params![next, project_id],
-        )?;
-        self.event(
-            project_id,
-            "project_renamed",
-            actor,
-            None,
-            None,
-            Some(json!({ "from": previous, "to": next })),
-        )?;
-        self.require_project(project_id)
+        self.atomic(|| {
+            let project = self.require_project(project_id)?;
+            let next = name.trim();
+            if next.is_empty() {
+                return err("project name is required");
+            }
+            let previous = text(&project, "name");
+            if next == previous {
+                return Ok(project);
+            }
+            self.conn.execute(
+                "UPDATE projects SET name=? WHERE id=?",
+                params![next, project_id],
+            )?;
+            self.event(
+                project_id,
+                "project_renamed",
+                actor,
+                None,
+                None,
+                Some(json!({ "from": previous, "to": next })),
+            )?;
+            self.require_project(project_id)
+        })
     }
 
     pub fn set_project_root(
@@ -261,51 +361,59 @@ impl Db {
         root_path: &str,
         actor: &str,
     ) -> Result<(Value, Vec<String>)> {
-        let project = self.require_project(project_id)?;
-        let raw = root_path.trim();
-        if raw.is_empty() {
-            return err("research folder is required");
-        }
-        let next = resolve(Path::new(raw));
-        match std::fs::metadata(&next) {
-            Err(_) => return err("research folder not found"),
-            Ok(meta) if !meta.is_dir() => return err("research folder must be a directory"),
-            Ok(_) => {}
-        }
-        let next_str = next.to_string_lossy().into_owned();
-        let previous = text(&project, "root_path");
-        if next_str == previous {
-            return Ok((project, Vec::new()));
-        }
-        self.conn.execute(
-            "UPDATE projects SET root_path=? WHERE id=?",
-            params![next_str, project_id],
-        )?;
-        self.event(
-            project_id,
-            "project_root_changed",
-            actor,
-            None,
-            None,
-            Some(json!({ "from": previous, "to": next_str })),
-        )?;
-        // Assets are stored as a path relative to the root, so re-pointing it can
-        // leave some of them hanging. Report which rather than listing files that
-        // are gone.
-        let missing = query_all(
-            &self.conn,
-            "SELECT a.relative_path FROM assets a JOIN objects o ON o.id=a.object_id
+        self.atomic(|| {
+            let project = self.require_project(project_id)?;
+            let raw = root_path.trim();
+            if raw.is_empty() {
+                return err("research folder is required");
+            }
+            let next = resolve(Path::new(raw));
+            match std::fs::metadata(&next) {
+                Err(_) => return err("research folder not found"),
+                Ok(meta) if !meta.is_dir() => return err("research folder must be a directory"),
+                Ok(_) => {}
+            }
+            let next_str = next.to_string_lossy().into_owned();
+            let previous = text(&project, "root_path");
+            if next_str == previous {
+                return Ok((project, Vec::new()));
+            }
+            self.conn.execute(
+                "UPDATE projects SET root_path=? WHERE id=?",
+                params![next_str, project_id],
+            )?;
+            self.event(
+                project_id,
+                "project_root_changed",
+                actor,
+                None,
+                None,
+                Some(json!({ "from": previous, "to": next_str })),
+            )?;
+            // Assets are stored as a path relative to the root, so re-pointing it can
+            // leave some of them hanging. Report which rather than listing files that
+            // are gone.
+            let missing = query_all(
+                &self.conn,
+                "SELECT a.relative_path FROM assets a JOIN objects o ON o.id=a.object_id
              WHERE o.project_id=? ORDER BY a.relative_path",
-            &[&project_id],
-        )?
-        .into_iter()
-        .map(|row| text(&row, "relative_path"))
-        .filter(|rel| !next.join(rel).exists())
-        .collect();
-        Ok((self.require_project(project_id)?, missing))
+                &[&project_id],
+            )?
+            .into_iter()
+            .map(|row| text(&row, "relative_path"))
+            .filter(|rel| !next.join(rel).exists())
+            .collect();
+            Ok((self.require_project(project_id)?, missing))
+        })
     }
 
-    pub fn create_object(&self, project_id: &str, input: &ObjectInput, actor: &str) -> Result<Value> {
+    pub fn create_object(
+        &self,
+        project_id: &str,
+        input: &ObjectInput,
+        actor: &str,
+    ) -> Result<Value> {
+        self.atomic(|| {
         validate_object_input(input)?;
         self.require_project(project_id)?;
         let id = new_id(&input.type_[..4.min(input.type_.len())]);
@@ -341,6 +449,7 @@ impl Db {
         )?;
         query_one(&self.conn, "SELECT * FROM objects WHERE id=?", &[&id])?
             .ok_or_else(|| Error("object not found".into()))
+        })
     }
 
     // Fills in what would decide a prediction, for the ones written before the
@@ -357,6 +466,7 @@ impl Db {
         symbols: &[SymbolInput],
         actor: &str,
     ) -> Result<Value> {
+        self.atomic(|| {
         let object = query_one(&self.conn, "SELECT * FROM objects WHERE id=?", &[&object_id])?
             .ok_or_else(|| Error("object not found".into()))?;
         if text(&object, "type") != "prediction" {
@@ -393,6 +503,7 @@ impl Db {
         )?;
         self.get_object(object_id)?
             .ok_or_else(|| Error("object not found".into()))
+        })
     }
 
     // Replaced whole, like the criterion they belong to. A symbol has no life of
@@ -400,11 +511,17 @@ impl Db {
     // in it are whatever the new one says.
     fn replace_symbols(&self, object_id: &str, symbols: &[SymbolInput]) -> Result<()> {
         validate_symbols(symbols)?;
-        self.conn
-            .execute("DELETE FROM criterion_symbols WHERE object_id=?", [object_id])?;
+        self.conn.execute(
+            "DELETE FROM criterion_symbols WHERE object_id=?",
+            [object_id],
+        )?;
         let stamp = now();
         for symbol in symbols {
-            let meaning = symbol.meaning.as_deref().map(str::trim).filter(|m| !m.is_empty());
+            let meaning = symbol
+                .meaning
+                .as_deref()
+                .map(str::trim)
+                .filter(|m| !m.is_empty());
             self.conn.execute(
                 "INSERT INTO criterion_symbols(id,object_id,name,meaning,created_at)
                  VALUES(?,?,?,?,?)",
@@ -427,46 +544,86 @@ impl Db {
     // asking whether a remark is 確定 was what made the old note type read wrong.
     // Empty clears it.
     pub fn set_object_note(&self, object_id: &str, note: &str, actor: &str) -> Result<Value> {
-        let object = query_one(&self.conn, "SELECT * FROM objects WHERE id=?", &[&object_id])?
+        self.atomic(|| {
+            let object = query_one(
+                &self.conn,
+                "SELECT * FROM objects WHERE id=?",
+                &[&object_id],
+            )?
             .ok_or_else(|| Error("object not found".into()))?;
-        let trimmed = note.trim();
-        let value = (!trimmed.is_empty()).then(|| trimmed.to_string());
-        self.conn.execute(
-            "UPDATE objects SET note=?, updated_at=? WHERE id=?",
-            params![value, now(), object_id],
-        )?;
-        self.event(
-            &text(&object, "project_id"),
-            "object_note_set",
-            actor,
-            Some(object_id),
-            None,
-            Some(json!({ "empty": trimmed.is_empty() })),
-        )?;
-        self.get_object(object_id)?
-            .ok_or_else(|| Error("object not found".into()))
+            let trimmed = note.trim();
+            let value = (!trimmed.is_empty()).then(|| trimmed.to_string());
+            self.conn.execute(
+                "UPDATE objects SET note=?, updated_at=? WHERE id=?",
+                params![value, now(), object_id],
+            )?;
+            self.event(
+                &text(&object, "project_id"),
+                "object_note_set",
+                actor,
+                Some(object_id),
+                None,
+                Some(json!({ "empty": trimmed.is_empty() })),
+            )?;
+            self.get_object(object_id)?
+                .ok_or_else(|| Error("object not found".into()))
+        })
     }
 
-    pub fn update_object_status(&self, object_id: &str, status: &str, actor: &str) -> Result<Value> {
+    pub fn update_object_status(
+        &self,
+        object_id: &str,
+        status: &str,
+        actor: &str,
+    ) -> Result<Value> {
+        self.update_object_status_said(object_id, status, actor, None)
+    }
+
+    // `actor` "researcher" is the researcher's own press on screen, and may make
+    // any move. Everyone else is relaying their word and is held to
+    // domain::check_relayed_status_change. `statement` is that word, when the
+    // relay can quote it -- the MCP tool has to, since nothing else on that
+    // path records what the researcher said -- and it goes into the event.
+    pub fn update_object_status_said(
+        &self,
+        object_id: &str,
+        status: &str,
+        actor: &str,
+        statement: Option<&str>,
+    ) -> Result<Value> {
         if !crate::domain::STATUSES.contains(&status) {
             return err("invalid status");
         }
-        let object = query_one(&self.conn, "SELECT * FROM objects WHERE id=?", &[&object_id])?
+        self.atomic(|| {
+            let object = query_one(
+                &self.conn,
+                "SELECT * FROM objects WHERE id=?",
+                &[&object_id],
+            )?
             .ok_or_else(|| Error("object not found".into()))?;
-        self.conn.execute(
-            "UPDATE objects SET status=?, updated_at=? WHERE id=?",
-            params![status, now(), object_id],
-        )?;
-        self.event(
-            &text(&object, "project_id"),
-            &format!("object_{status}"),
-            actor,
-            Some(object_id),
-            None,
-            Some(json!({ "from": text(&object, "status"), "to": status })),
-        )?;
-        self.get_object(object_id)?
-            .ok_or_else(|| Error("object not found".into()))
+            let from = text(&object, "status");
+            if actor != "researcher" {
+                crate::domain::check_relayed_status_change(&from, status)?;
+            }
+            self.conn.execute(
+                "UPDATE objects SET status=?, updated_at=? WHERE id=?",
+                params![status, now(), object_id],
+            )?;
+            let mut detail = json!({ "from": from, "to": status });
+            if let Some(said) = statement.map(str::trim).filter(|s| !s.is_empty()) {
+                detail["statement"] = json!(said);
+            }
+            self.event(
+                &text(&object, "project_id"),
+                &format!("object_{status}"),
+                actor,
+                Some(object_id),
+                None,
+                Some(detail),
+            )?;
+            self.get_object(object_id)?
+                .ok_or_else(|| Error("object not found".into()))
+        })
     }
 
     // A relation carries its own origin and status, so an agent's guess about how
@@ -479,35 +636,37 @@ impl Db {
         status: &str,
         actor: &str,
     ) -> Result<Value> {
-        // A relation has no archived: it is structure, and structure that is done
-        // with is taken out rather than put away.
-        if !["proposed", "confirmed", "rejected"].contains(&status) {
-            return err("invalid status");
-        }
-        let relation = query_one(
-            &self.conn,
-            "SELECT * FROM relations WHERE id=?",
-            &[&relation_id],
-        )?
-        .ok_or_else(|| Error("relation not found".into()))?;
-        self.conn.execute(
-            "UPDATE relations SET status=? WHERE id=?",
-            params![status, relation_id],
-        )?;
-        self.event(
-            &text(&relation, "project_id"),
-            &format!("relation_{status}"),
-            actor,
-            None,
-            Some(relation_id),
-            Some(json!({ "from": text(&relation, "status"), "to": status })),
-        )?;
-        query_one(
-            &self.conn,
-            "SELECT * FROM relations WHERE id=?",
-            &[&relation_id],
-        )?
-        .ok_or_else(|| Error("relation not found".into()))
+        self.atomic(|| {
+            // A relation has no archived: it is structure, and structure that is done
+            // with is taken out rather than put away.
+            if !["proposed", "confirmed", "rejected"].contains(&status) {
+                return err("invalid status");
+            }
+            let relation = query_one(
+                &self.conn,
+                "SELECT * FROM relations WHERE id=?",
+                &[&relation_id],
+            )?
+            .ok_or_else(|| Error("relation not found".into()))?;
+            self.conn.execute(
+                "UPDATE relations SET status=? WHERE id=?",
+                params![status, relation_id],
+            )?;
+            self.event(
+                &text(&relation, "project_id"),
+                &format!("relation_{status}"),
+                actor,
+                None,
+                Some(relation_id),
+                Some(json!({ "from": text(&relation, "status"), "to": status })),
+            )?;
+            query_one(
+                &self.conn,
+                "SELECT * FROM relations WHERE id=?",
+                &[&relation_id],
+            )?
+            .ok_or_else(|| Error("relation not found".into()))
+        })
     }
 
     // A relation is structure, not a claim. A line the agent drew wrong is a
@@ -517,28 +676,30 @@ impl Db {
     // draw it again. What it took part in stays -- events.relation_id carries no
     // foreign key, so the log still says the line was there and was removed.
     pub fn delete_relation(&self, relation_id: &str, actor: &str) -> Result<Value> {
-        let relation = query_one(
-            &self.conn,
-            "SELECT * FROM relations WHERE id=?",
-            &[&relation_id],
-        )?
-        .ok_or_else(|| Error("relation not found".into()))?;
-        self.conn
-            .execute("DELETE FROM relations WHERE id=?", params![relation_id])?;
-        self.event(
-            &text(&relation, "project_id"),
-            "relation_removed",
-            actor,
-            None,
-            Some(relation_id),
-            Some(json!({
-                "subject_id": text(&relation, "subject_id"),
-                "predicate": text(&relation, "predicate"),
-                "object_id": text(&relation, "object_id"),
-                "status": text(&relation, "status"),
-            })),
-        )?;
-        Ok(relation)
+        self.atomic(|| {
+            let relation = query_one(
+                &self.conn,
+                "SELECT * FROM relations WHERE id=?",
+                &[&relation_id],
+            )?
+            .ok_or_else(|| Error("relation not found".into()))?;
+            self.conn
+                .execute("DELETE FROM relations WHERE id=?", params![relation_id])?;
+            self.event(
+                &text(&relation, "project_id"),
+                "relation_removed",
+                actor,
+                None,
+                Some(relation_id),
+                Some(json!({
+                    "subject_id": text(&relation, "subject_id"),
+                    "predicate": text(&relation, "predicate"),
+                    "object_id": text(&relation, "object_id"),
+                    "status": text(&relation, "status"),
+                })),
+            )?;
+            Ok(relation)
+        })
     }
 
     // Having run a measurement is not the same as having decided to run it, so
@@ -559,37 +720,47 @@ impl Db {
         performed_at: Option<&str>,
         actor: &str,
     ) -> Result<Value> {
-        let object = query_one(&self.conn, "SELECT * FROM objects WHERE id=?", &[&object_id])?
+        self.atomic(|| {
+            let object = query_one(
+                &self.conn,
+                "SELECT * FROM objects WHERE id=?",
+                &[&object_id],
+            )?
             .ok_or_else(|| Error("object not found".into()))?;
-        if text(&object, "type") != "measurement" {
-            return err("only a measurement can be performed");
-        }
-        if performed {
-            self.conn.execute(
-                "INSERT INTO measurements(object_id,performed_at) VALUES(?,?)
+            if text(&object, "type") != "measurement" {
+                return err("only a measurement can be performed");
+            }
+            if performed {
+                self.conn.execute(
+                    "INSERT INTO measurements(object_id,performed_at) VALUES(?,?)
                  ON CONFLICT(object_id) DO UPDATE SET performed_at=excluded.performed_at",
-                params![object_id, performed_at],
-            )?;
-        } else {
+                    params![object_id, performed_at],
+                )?;
+            } else {
+                self.conn.execute(
+                    "DELETE FROM measurements WHERE object_id=?",
+                    params![object_id],
+                )?;
+            }
             self.conn.execute(
-                "DELETE FROM measurements WHERE object_id=?",
-                params![object_id],
+                "UPDATE objects SET updated_at=? WHERE id=?",
+                params![now(), object_id],
             )?;
-        }
-        self.conn.execute(
-            "UPDATE objects SET updated_at=? WHERE id=?",
-            params![now(), object_id],
-        )?;
-        self.event(
-            &text(&object, "project_id"),
-            if performed { "measurement_performed" } else { "measurement_not_performed" },
-            actor,
-            Some(object_id),
-            None,
-            Some(json!({ "performed_at": performed_at })),
-        )?;
-        self.get_object(object_id)?
-            .ok_or_else(|| Error("object not found".into()))
+            self.event(
+                &text(&object, "project_id"),
+                if performed {
+                    "measurement_performed"
+                } else {
+                    "measurement_not_performed"
+                },
+                actor,
+                Some(object_id),
+                None,
+                Some(json!({ "performed_at": performed_at })),
+            )?;
+            self.get_object(object_id)?
+                .ok_or_else(|| Error("object not found".into()))
+        })
     }
 
     pub fn list_objects(&self, project_id: &str, type_: Option<&str>) -> Result<Vec<Value>> {
@@ -627,8 +798,11 @@ impl Db {
     }
 
     pub fn get_object(&self, object_id: &str) -> Result<Option<Value>> {
-        let Some(mut object) =
-            query_one(&self.conn, "SELECT * FROM objects WHERE id=?", &[&object_id])?
+        let Some(mut object) = query_one(
+            &self.conn,
+            "SELECT * FROM objects WHERE id=?",
+            &[&object_id],
+        )?
         else {
             return Ok(None);
         };
@@ -674,6 +848,22 @@ impl Db {
             )?;
             map.insert("asset".into(), asset.unwrap_or(Value::Null));
         }
+        // Where it was put away from, so taking it out of the archive puts it
+        // back there. Anything can be archived now, proposals included, and a
+        // proposal coming back as 確定 would be a decision nobody made.
+        if map.get("status").and_then(Value::as_str) == Some("archived") {
+            let from = query_one(
+                &self.conn,
+                "SELECT json_extract(detail_json, '$.from') AS from_status FROM events
+                 WHERE object_id=? AND action='object_archived'
+                 ORDER BY created_at DESC, rowid DESC LIMIT 1",
+                &[&object_id],
+            )?
+            .map(|row| text(&row, "from_status"))
+            .filter(|s| s == "proposed" || s == "confirmed")
+            .unwrap_or_else(|| "confirmed".into());
+            map.insert("archived_from".into(), json!(from));
+        }
         Ok(Some(object))
     }
 
@@ -683,6 +873,7 @@ impl Db {
         input: &RelationInput,
         actor: &str,
     ) -> Result<Value> {
+        self.atomic(|| {
         validate_relation_input(input)?;
         let subject = self
             .get_object(&input.subject_id)?
@@ -752,6 +943,7 @@ impl Db {
         )?;
         query_one(&self.conn, "SELECT * FROM relations WHERE id=?", &[&id])?
             .ok_or_else(|| Error("relation not found".into()))
+        })
     }
 
     pub fn list_relations(&self, project_id: &str) -> Result<Vec<Value>> {
@@ -775,65 +967,75 @@ impl Db {
         )
     }
 
-    pub fn register_asset(&self, project_id: &str, absolute_path: &Path, origin: &str) -> Result<Value> {
-        let project = self.require_project(project_id)?;
-        let root = resolve(Path::new(&text(&project, "root_path")));
-        let abs = resolve(absolute_path);
-        let Ok(rel) = abs.strip_prefix(&root) else {
-            return err("asset path must be inside project root");
-        };
-        if rel.as_os_str().is_empty() {
-            return err("asset path must be inside project root");
-        }
-        let rel = rel.to_string_lossy().into_owned();
-        let meta = std::fs::metadata(&abs)?;
-        if !meta.is_file() {
-            return err("asset must be a file");
-        }
-        let existing = query_one(
-            &self.conn,
-            "SELECT o.id FROM objects o JOIN assets a ON a.object_id=o.id
-             WHERE o.project_id=? AND a.relative_path=? LIMIT 1",
-            &[&project_id, &rel.as_str()],
-        )?;
-        if let Some(found) = existing {
-            let id = text(&found, "id");
-            // The record is still there but the researcher threw it away and has
-            // now registered the same file again, which is asking for it back.
-            // Without this the press would hand over a rejected object that no
-            // screen shows, and read as another button that does nothing.
-            if text(&found, "status") == "rejected" {
-                self.update_object_status(&id, "confirmed", origin)?;
+    pub fn register_asset(
+        &self,
+        project_id: &str,
+        absolute_path: &Path,
+        origin: &str,
+    ) -> Result<Value> {
+        self.atomic(|| {
+            let project = self.require_project(project_id)?;
+            let root = resolve(Path::new(&text(&project, "root_path")));
+            let abs = resolve(absolute_path);
+            let Ok(rel) = abs.strip_prefix(&root) else {
+                return err("asset path must be inside project root");
+            };
+            if rel.as_os_str().is_empty() {
+                return err("asset path must be inside project root");
             }
-            return self
-                .get_object(&id)?
-                .ok_or_else(|| Error("object not found".into()));
-        }
-        let filename = abs
-            .file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_else(|| rel.clone());
-        let object = self.create_object(
-            project_id,
-            &ObjectInput {
-                type_: "asset".into(),
-                title: filename,
-                body: None,
-                origin: origin.into(),
-                status: "confirmed".into(),
-                // Only a prediction has these.
-                criterion: None,
-                criterion_note: None,
-                symbols: None,
-            },
-            origin,
-        )?;
-        let object_id = text(&object, "id");
-        self.conn.execute(
-            "INSERT INTO assets(object_id,relative_path,size_bytes,modified_at,sha256,media_type)
-             VALUES(?,?,?,?,?,?)",
+            let rel = crate::files::slash(rel);
+            let meta = std::fs::metadata(&abs)?;
+            if !meta.is_file() {
+                return err("asset must be a file");
+            }
+            // status is read here because the branch below asks for it. It was
+            // not selected, so a rejected file registered again came back still
+            // rejected, off every screen.
+            let existing = query_one(
+                &self.conn,
+                "SELECT o.id, o.status FROM objects o JOIN assets a ON a.object_id=o.id
+             WHERE o.project_id=? AND a.relative_path=? LIMIT 1",
+                &[&project_id, &rel.as_str()],
+            )?;
+            if let Some(found) = existing {
+                let id = text(&found, "id");
+                // The record is still there but the researcher threw it away and has
+                // now registered the same file again, which is asking for it back.
+                // Without this the press would hand over a rejected object that no
+                // screen shows, and read as another button that does nothing.
+                if text(&found, "status") == "rejected" {
+                    self.update_object_status(&id, "confirmed", origin)?;
+                }
+                return self
+                    .get_object(&id)?
+                    .ok_or_else(|| Error("object not found".into()));
+            }
+            let filename = abs
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_else(|| rel.clone());
+            let object = self.create_object(
+                project_id,
+                &ObjectInput {
+                    type_: "asset".into(),
+                    title: filename,
+                    body: None,
+                    origin: origin.into(),
+                    status: "confirmed".into(),
+                    // Only a prediction has these.
+                    criterion: None,
+                    criterion_note: None,
+                    symbols: None,
+                },
+                origin,
+            )?;
+            let object_id = text(&object, "id");
+            self.conn.execute(
+            "INSERT INTO assets(object_id,project_id,relative_path,size_bytes,modified_at,sha256,media_type)
+             VALUES(?,?,?,?,?,?,?)",
             params![
                 object_id,
+                project_id,
                 rel,
                 meta.len() as i64,
                 meta.modified().map(iso).unwrap_or_default(),
@@ -841,8 +1043,9 @@ impl Db {
                 Option::<String>::None
             ],
         )?;
-        self.get_object(&object_id)?
-            .ok_or_else(|| Error("object not found".into()))
+            self.get_object(&object_id)?
+                .ok_or_else(|| Error("object not found".into()))
+        })
     }
 
     // Which files the agent read, and when. Nothing is gated on it -- the agent
@@ -858,6 +1061,63 @@ impl Db {
             None,
             Some(json!({ "path": relative_path })),
         )
+    }
+
+    // A read over MCP sends the record to Claude Code, which is as much leaving
+    // rescicle as a file being read is. Only which tool: the arguments say
+    // nothing the tool name does not, and the answer is the record itself.
+    pub fn log_mcp_read(&self, project_id: &str, tool: &str) -> Result<()> {
+        self.event(
+            project_id,
+            "mcp_read",
+            "agent-via-mcp",
+            None,
+            None,
+            Some(json!({ "tool": tool })),
+        )
+    }
+
+    // What happened lately, newest first, for the agent to see beside the
+    // current state. The state says a hypothesis is archived; this says the
+    // researcher archived it ten minutes ago, and rejected two predictions on
+    // the way. Reads are left out -- mcp_read is bookkeeping, not research.
+    pub fn recent_events(&self, project_id: &str, limit: i64) -> Result<Vec<Value>> {
+        query_all(
+            &self.conn,
+            "SELECT action, actor, object_id, relation_id, detail_json, created_at FROM events
+             WHERE project_id=? AND action <> 'mcp_read'
+             ORDER BY created_at DESC, rowid DESC LIMIT ?",
+            &[&project_id, &limit],
+        )
+    }
+
+    // Everything rescicle holds about one research, as it is stored. For
+    // taking it somewhere else -- another machine, a lab notebook, a script --
+    // and for the researcher to see that nothing is hidden in it. Column names
+    // are the ones in schema.sql, so it reads against that file.
+    pub fn export_project(&self, project_id: &str) -> Result<Value> {
+        let project = self.require_project(project_id)?;
+        let all = |sql: &str| query_all(&self.conn, sql, &[&project_id]);
+        Ok(json!({
+            "format": "rescicle-export",
+            "version": env!("CARGO_PKG_VERSION"),
+            "exported_at": now(),
+            "project": project,
+            "objects": all("SELECT * FROM objects WHERE project_id=? ORDER BY created_at, rowid")?,
+            "relations": all("SELECT * FROM relations WHERE project_id=? ORDER BY created_at, rowid")?,
+            "criterion_symbols": all(
+                "SELECT s.* FROM criterion_symbols s JOIN objects o ON o.id=s.object_id
+                 WHERE o.project_id=? ORDER BY s.created_at, s.rowid"
+            )?,
+            "measurements": all(
+                "SELECT m.* FROM measurements m JOIN objects o ON o.id=m.object_id WHERE o.project_id=?"
+            )?,
+            "assets": all(
+                "SELECT a.* FROM assets a JOIN objects o ON o.id=a.object_id WHERE o.project_id=?"
+            )?,
+            "messages": all("SELECT * FROM messages WHERE project_id=? ORDER BY created_at, rowid")?,
+            "events": all("SELECT * FROM events WHERE project_id=? ORDER BY created_at, rowid")?,
+        }))
     }
 
     pub fn file_read_log(&self, project_id: &str) -> Result<Vec<Value>> {
@@ -969,13 +1229,22 @@ impl Db {
                 // asking about.
                 if text(&o, "type") == "prediction" {
                     let map = row.as_object_mut().expect("row is an object");
-                    map.insert("criterion".into(), o.get("criterion").cloned().unwrap_or(Value::Null));
-                    map.insert("criterion_note".into(), o.get("criterion_note").cloned().unwrap_or(Value::Null));
+                    map.insert(
+                        "criterion".into(),
+                        o.get("criterion").cloned().unwrap_or(Value::Null),
+                    );
+                    map.insert(
+                        "criterion_note".into(),
+                        o.get("criterion_note").cloned().unwrap_or(Value::Null),
+                    );
                     // list_objects put these on the row. Sent so the agent can
                     // see which quantities are already named -- reusing
                     // p_engraft across two predictions is what makes them about
                     // the same thing rather than two lookalikes.
-                    map.insert("symbols".into(), o.get("symbols").cloned().unwrap_or(json!([])));
+                    map.insert(
+                        "symbols".into(),
+                        o.get("symbols").cloned().unwrap_or(json!([])),
+                    );
                 }
                 // The agent is told to record whether a measurement has been run
                 // and to keep it out of the body. Without it here it could write
@@ -1014,7 +1283,27 @@ impl Db {
             Some(id) => self.get_object(id)?.unwrap_or(Value::Null),
             None => Value::Null,
         };
-        Ok(json!({ "objects": objects, "relations": relations, "selectedObject": selected }))
+        // Parsed back out of detail_json so the agent reads one JSON document
+        // rather than JSON with strings of JSON inside it.
+        let recent: Vec<Value> = self
+            .recent_events(project_id, 30)?
+            .into_iter()
+            .map(|mut e| {
+                let detail = e
+                    .get("detail_json")
+                    .and_then(Value::as_str)
+                    .and_then(|d| serde_json::from_str::<Value>(d).ok())
+                    .unwrap_or(Value::Null);
+                let map = e.as_object_mut().expect("row is an object");
+                map.remove("detail_json");
+                map.insert("detail".into(), detail);
+                e
+            })
+            .collect();
+        Ok(json!({
+            "objects": objects, "relations": relations, "selectedObject": selected,
+            "recentEvents": recent,
+        }))
     }
 }
 

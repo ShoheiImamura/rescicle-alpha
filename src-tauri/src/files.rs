@@ -61,6 +61,18 @@ pub fn resolve_project_file(root: &Path, relative_path: &str) -> Result<PathBuf>
     Ok(absolute)
 }
 
+// A path inside the research folder as it is stored and shown: always `/`,
+// whichever OS wrote it. The record outlives the machine it was made on, and
+// `data\run1.csv` read anywhere but Windows is one file with a backslash in its
+// name. Windows takes `/` everywhere a path is joined, so nothing is lost there.
+pub fn slash(relative: &Path) -> String {
+    relative
+        .components()
+        .map(|c| c.as_os_str().to_string_lossy())
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
 pub fn iso(time: SystemTime) -> String {
     DateTime::<Utc>::from(time).to_rfc3339_opts(SecondsFormat::Millis, true)
 }
@@ -103,11 +115,7 @@ fn walk(base: &Path, dir: &Path, limit: usize, out: &mut Vec<FileEntry>) {
             let Ok(meta) = entry.metadata() else { continue };
             let modified_at = meta.modified().map(iso).unwrap_or_default();
             out.push(FileEntry {
-                relative_path: path
-                    .strip_prefix(base)
-                    .unwrap_or(&path)
-                    .to_string_lossy()
-                    .into_owned(),
+                relative_path: slash(path.strip_prefix(base).unwrap_or(&path)),
                 extension: path
                     .extension()
                     .map(|e| format!(".{}", e.to_string_lossy().to_lowercase()))

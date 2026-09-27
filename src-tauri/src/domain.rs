@@ -139,6 +139,28 @@ pub fn validate_object_input(input: &ObjectInput) -> Result<()> {
     Ok(())
 }
 
+/// Who may change a status, and to what. The researcher, pressing it on screen,
+/// may make any move. Anyone relaying -- the conversation agent, Claude Code
+/// over MCP -- carries the researcher's word about something still open, and
+/// nothing more: it may settle a proposal (確定 / 却下) and put something away
+/// (アーカイブ), and it may not undo a decision the researcher already made.
+///
+/// The move it most needed to lose was confirmed → rejected. A rejection is
+/// deleted after the grace period, so a relayed one could throw away a claim
+/// the researcher had settled, with the only trace left in the event log.
+pub fn check_relayed_status_change(from: &str, to: &str) -> Result<()> {
+    let allowed = from == to
+        || (from == "proposed" && ["confirmed", "rejected", "archived"].contains(&to))
+        || (from == "confirmed" && to == "archived");
+    if allowed {
+        Ok(())
+    } else {
+        err(format!(
+            "研究者が決めた状態（{from}）は、画面で研究者が変えてください。AI からは {to} にできません。"
+        ))
+    }
+}
+
 /// The symbols as they will be stored, and an empty slice when there are none.
 pub fn symbols_of(input: &ObjectInput) -> &[SymbolInput] {
     match &input.symbols {
@@ -226,6 +248,29 @@ mod tests {
         assert!(validate_object_input(&input("hypothesis", Some("p_a > p_b"))).is_err());
         assert!(validate_object_input(&input("hypothesis", None)).is_ok());
         assert!(validate_object_input(&input("question", Some(""))).is_ok());
+    }
+
+    #[test]
+    fn a_relayed_change_settles_proposals_and_never_undoes_a_decision() {
+        for (from, to) in [
+            ("proposed", "confirmed"),
+            ("proposed", "rejected"),
+            ("proposed", "archived"),
+            ("confirmed", "archived"),
+            ("confirmed", "confirmed"),
+        ] {
+            assert!(check_relayed_status_change(from, to).is_ok(), "{from} -> {to}");
+        }
+        for (from, to) in [
+            ("confirmed", "rejected"),
+            ("confirmed", "proposed"),
+            ("rejected", "confirmed"),
+            ("rejected", "proposed"),
+            ("archived", "confirmed"),
+            ("proposed", "proposed_typo"),
+        ] {
+            assert!(check_relayed_status_change(from, to).is_err(), "{from} -> {to}");
+        }
     }
 
     // The note explains the expression, so it has nothing to be about on its own.

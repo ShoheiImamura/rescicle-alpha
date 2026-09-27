@@ -318,6 +318,7 @@ async function boot() {
     const messages = document.getElementById('messages');
     if (messages) messages.scrollTop = messages.scrollHeight;
   });
+  api.onRecordChanged(onRecordChanged);
   state.bootstrap = await api.bootstrap();
   state.workspace = state.bootstrap.workspace;
   render();
@@ -758,7 +759,7 @@ function mapFigureHtml(g) {
     const label = TYPE_LABEL[CHAIN[c]] || CHAIN[c];
     return `<text class="map-col-head ${col.length ? '' : 'empty'}" x="${c * (MAP.W + MAP.COL_GAP)}" y="12">${esc(label)}</text>`;
   }).join('');
-  const nodes = [...g.pos.values()].map(({ x, y, o }) => `<g class="map-node ${esc(o.status)} ${state.selectedObjectId === o.id ? 'selected' : ''}" data-object-id="${o.id}">
+  const nodes = [...g.pos.values()].map(({ x, y, o }) => `<g class="map-node ${esc(o.status)} ${state.selectedObjectId === o.id ? 'selected' : ''}" data-object-id="${esc(o.id)}">
       <rect x="${x}" y="${y}" width="${MAP.W}" height="${MAP.H}" rx="10"></rect>
       <text class="map-type" x="${x + MAP.PAD}" y="${y + 17}">${esc(TYPE_LABEL[o.type] || o.type)}</text>
       ${o.performed ? `<text class="map-done" x="${x + MAP.W - MAP.PAD}" y="${y + 17}">実施済み</text>` : ''}
@@ -842,7 +843,7 @@ function performedPillHtml(o) {
 
 function performedButtonHtml(o) {
   if (o.type !== 'measurement') return '';
-  return `<button class="btn small" data-performed="${o.performed ? 'false' : 'true'}" data-target-id="${o.id}" title="${o.performed ? 'まだ実施していないことにする' : '実施したことにする'}">${o.performed ? '未実施に戻す' : '実施した'}</button>`;
+  return `<button class="btn small" data-performed="${o.performed ? 'false' : 'true'}" data-target-id="${esc(o.id)}" title="${o.performed ? 'まだ実施していないことにする' : '実施したことにする'}">${o.performed ? '未実施に戻す' : '実施した'}</button>`;
 }
 
 function statusButtonsHtml(o) {
@@ -852,10 +853,10 @@ function statusButtonsHtml(o) {
   // file registered. The one decision left is whether it stays registered, and
   // that is 却下: the record goes, the file on disk does not.
   if (o.type === 'asset') {
-    return `<button class="btn danger small" data-status="rejected" data-target-id="${o.id}" title="ファイルはそのまま、研究の記録から外します">登録を取り消す</button>`;
+    return `<button class="btn danger small" data-status="rejected" data-target-id="${esc(o.id)}" title="ファイルはそのまま、研究の記録から外します">登録を取り消す</button>`;
   }
   if (o.status === 'proposed') {
-    return `<button class="btn primary small" data-status="confirmed" data-target-id="${o.id}">確定</button><button class="btn danger small" data-status="rejected" data-target-id="${o.id}">却下</button>`;
+    return `<button class="btn primary small" data-status="confirmed" data-target-id="${esc(o.id)}">確定</button><button class="btn danger small" data-status="rejected" data-target-id="${esc(o.id)}">却下</button>`;
   }
   // A settled claim has nothing here. 提案中に戻す stood on every confirmed card
   // for good, and going back to being under discussion is not a thing anybody
@@ -939,7 +940,7 @@ function cardHtml(o, { pinned = false, fileLine = null } = {}) {
   // panel the map drives, which `pinned` marks -- must not dismiss what you opened.
   const row = pinned
     ? '<div class="card-row">'
-    : `<div class="card-row clickable" data-object-id="${o.id}" data-object-type="${esc(o.type)}">`;
+    : `<div class="card-row clickable" data-object-id="${esc(o.id)}" data-object-type="${esc(o.type)}">`;
   const head = fileLine !== null
     ? `<div class="card-file" title="${fileLine}">${fileLine}</div>`
     : `<div class="type">${esc(TYPE_LABEL[o.type] || o.type)}</div>`;
@@ -1038,15 +1039,15 @@ function expansionHtml(o) {
     // Red is for 却下 on an object, which cannot be made again by hand. Taking
     // a line out is two clicks from being back, so it reads as the ordinary
     // thing it is.
-    const drop = `<button class="btn small" data-relation-drop="${r.id}" title="このつながりを外す">はずす</button>`;
-    if (r.status === 'proposed') return `<button class="btn primary small" data-relation-status="confirmed" data-relation-id="${r.id}">確定</button>${drop}`;
+    const drop = `<button class="btn small" data-relation-drop="${esc(r.id)}" title="このつながりを外す">はずす</button>`;
+    if (r.status === 'proposed') return `<button class="btn primary small" data-relation-status="confirmed" data-relation-id="${esc(r.id)}">確定</button>${drop}`;
     // Links rejected before they could be removed are still in the database.
     // The state is out of the vocabulary now, so give those rows both ways out.
-    if (r.status === 'rejected') return `<button class="btn small" data-relation-status="proposed" data-relation-id="${r.id}" title="このつながりを提案中に戻す">提案中に戻す</button>${drop}`;
+    if (r.status === 'rejected') return `<button class="btn small" data-relation-status="proposed" data-relation-id="${esc(r.id)}" title="このつながりを提案中に戻す">提案中に戻す</button>${drop}`;
     return drop;
   };
 
-  const relRow = (r, id, title, type, side) => `<div class="rel-row ${side} ${esc(r.status)} clickable" data-object-id="${id}" data-object-type="${esc(type)}">
+  const relRow = (r, id, title, type, side) => `<div class="rel-row ${side} ${esc(r.status)} clickable" data-object-id="${esc(id)}" data-object-type="${esc(type)}">
       <span class="rel-pred">${esc(PREDICATE_LABEL[r.predicate] || r.predicate)}</span>
       <span class="type">${esc(TYPE_LABEL[type] || type)}</span>
       <span class="rel-title">${esc(title)}</span>
@@ -1160,13 +1161,19 @@ function dataPickHtml(o) {
 //
 // Nothing is destroyed, so there is no undo window and no warning: coming back
 // is the same quiet press in the other direction, for as long as it is wanted.
+//
+// A proposal can be put away too. Some are neither wrong nor worth deciding on
+// yet -- an alternative the researcher wants to stop looking at without saying
+// it was a mistake -- and 却下 would say it was a mistake and delete it. It
+// comes back as what it was: archived_from is read from the log, so a proposal
+// does not return as 確定.
 function archiveHtml(o) {
   if (o.type === 'asset') return '';
-  if (o.status === 'confirmed') {
+  if (o.status === 'confirmed' || o.status === 'proposed') {
     return `<button class="link-add" data-status="archived" data-target-id="${esc(o.id)}" title="片付いたものとして、マップと一覧から外します。消えません">アーカイブする</button>`;
   }
   if (o.status === 'archived') {
-    return `<button class="link-add" data-status="confirmed" data-target-id="${esc(o.id)}">アーカイブから戻す</button>`;
+    return `<button class="link-add" data-status="${esc(o.archived_from || 'confirmed')}" data-target-id="${esc(o.id)}">アーカイブから戻す</button>`;
   }
   return '';
 }
@@ -1223,7 +1230,7 @@ function fileRowHtml(f) {
   </div>`;
 }
 
-// The folder's own shape. A flat list repeats `src\renderer\` on every row and
+// The folder's own shape. A flat list repeats `src/renderer/` on every row and
 // says nothing about where anything is; the researcher is looking for the two
 // CSVs they wrote this morning, and the only thing that helps is knowing which
 // folder those are in. Grouping by directory is that, and it is also what makes
@@ -1232,7 +1239,7 @@ function groupByDirectory(files) {
   const dirs = new Map();
   for (const f of files) {
     const parts = f.relative_path.split(/[\\/]/);
-    const dir = parts.slice(0, -1).join('\\');
+    const dir = parts.slice(0, -1).join('/');
     if (!dirs.has(dir)) dirs.set(dir, []);
     dirs.get(dir).push({ ...f, name: parts[parts.length - 1] });
   }
@@ -1266,15 +1273,15 @@ function directoryTreeHtml(files) {
   const total = files.length;
   return `<div class="tree">${groups.map(([dir, entries]) => {
     const open = dirIsOpen(dir, total);
-    const parts = dir ? dir.split('\\') : [];
+    const parts = dir ? dir.split('/') : [];
     // Indented by depth, with everything above the last segment dimmed. Only
     // folders that hold files get a row, so a nesting drawn from the rows alone
-    // would have gaps in it -- src-tauri\gen\schemas with no src-tauri\gen above
+    // would have gaps in it -- src-tauri/gen/schemas with no src-tauri/gen above
     // it. Keeping the whole path visible says where it really is; dimming the
     // part that is not this folder's own name lets the eye read down the column
     // of names the way it would read a tree.
     const name = parts.length
-      ? `<span class="tree-path">${esc(parts.slice(0, -1).map(p => p + '\\').join(''))}</span>${esc(parts[parts.length - 1])}`
+      ? `<span class="tree-path">${esc(parts.slice(0, -1).map(p => p + '/').join(''))}</span>${esc(parts[parts.length - 1])}`
       : 'このフォルダの直下';
     return `<div class="tree-dir" style="padding-left:${parts.length * 13}px">
       <button class="tree-head ${open ? 'open' : ''}" data-dir="${esc(dir)}">
@@ -1531,7 +1538,7 @@ function mcpSectionHtml(agent) {
   const registered = state.mcp?.registered && !state.mcp?.stale;
   const label = state.mcpBusy ? '追加しています…' : registered ? '追加し直す' : 'Claude Codeに追加';
   return `<div class="settings-section"><h3>Claude Code側から操作する</h3>
-    <div class="muted settings-note">rescicleをMCP serverとしてClaude Codeに追加すると、Claude Code側をUIにしてrescicleを操作できます。画面のチャットだけを使うなら、追加は要りません。</div>
+    <div class="muted settings-note">rescicleをClaude Codeに追加すると、ターミナルのClaude Codeからもこの研究の記録を読んだり、提案を書き込んだりできます。書き込まれたものはこの画面にすぐ出ます。画面の会話だけを使うなら、追加は要りません。</div>
     ${mcpStateHtml()}
     ${state.mcpNotice ? `<div class="muted settings-note">${esc(state.mcpNotice)}</div>` : ''}
     <div class="actions"><button class="btn small primary" id="registerMcp"${state.mcpBusy || !available ? ' disabled' : ''}>${esc(label)}</button></div>
@@ -1575,7 +1582,15 @@ function recordSectionHtml() {
       <div class="actions"><button class="btn danger small" id="clearConfirm">消す</button><button class="btn small" id="clearCancel">やめる</button></div>
     </div>`;
   }
+  // 書き出す sits above すべて消す: taking a copy is what anyone about to clear
+  // the record should be offered first.
+  const exporting = state.workspace?.project
+    ? `<div class="muted settings-note">いま開いている研究の記録を、1つのJSONファイルとして保存します。</div>
+       <button class="btn small settings-action" id="exportRecord">この研究を書き出す</button>
+       ${state.exportNotice ? `<div class="muted settings-note">${esc(state.exportNotice)}</div>` : ''}`
+    : '';
   return `<div class="settings-section"><h3>rescicleの記録</h3>
+    ${exporting}
     <div class="muted settings-note">研究・オブジェクト・つながり・会話。消すと最初の画面に戻ります。研究フォルダのファイルには触れません。</div>
     <button class="btn small settings-action" id="clearStart">すべて消す</button>
   </div>`;
@@ -1814,6 +1829,7 @@ function bind() {
   document.getElementById('clearStart')?.addEventListener('click', () => { state.clearing = true; state.error = null; render(); });
   document.getElementById('clearCancel')?.addEventListener('click', () => { state.clearing = false; render(); });
   document.getElementById('clearConfirm')?.addEventListener('click', clearRecord);
+  document.getElementById('exportRecord')?.addEventListener('click', exportRecord);
   document.getElementById('registerMcp')?.addEventListener('click', registerMcp);
   document.getElementById('copyClaudeSetup')?.addEventListener('click', copyClaudeSetup);
   const messages = document.getElementById('messages'); if (messages) messages.scrollTop = messages.scrollHeight;
@@ -1923,7 +1939,7 @@ async function registerDirectory(dir) {
   const targets = state.files.filter(f => {
     if (f.asset_id) return false;
     const parts = f.relative_path.split(/[\\/]/);
-    return parts.slice(0, -1).join('\\') === dir;
+    return parts.slice(0, -1).join('/') === dir;
   });
   if (!targets.length) return;
   state.registeringDir = dir;
@@ -2095,6 +2111,35 @@ async function clearRecord() {
     setDecisionNotice(null);
   } catch (e) { state.error = errText(e); }
   render();
+}
+
+async function exportRecord() {
+  state.error = null; state.exportNotice = null;
+  try {
+    const saved = await api.exportRecord(state.workspace.project.id);
+    if (saved) state.exportNotice = `保存しました: ${saved}`;
+  } catch (e) { state.error = errText(e); }
+  render();
+}
+
+// Claude Code wrote to the record over MCP. Redrawn from the database the same
+// way a press here is, and not while a turn is running: the turn redraws when
+// it ends, and a redraw in the middle would rebuild the bubble being streamed.
+let recordChangedBusy = false;
+async function onRecordChanged() {
+  if (!state.workspace?.project || state.pending || recordChangedBusy) return;
+  recordChangedBusy = true;
+  try {
+    await refreshWorkspace();
+    if (state.selectedObjectId) await loadSelected(state.selectedObjectId);
+    else render();
+  } catch (e) {
+    // The object on the card may be the one that was just removed.
+    state.selectedObjectId = null; state.selectedObject = null;
+    render();
+  } finally {
+    recordChangedBusy = false;
+  }
 }
 
 async function loadMcpStatus() {
